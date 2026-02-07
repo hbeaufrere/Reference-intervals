@@ -1048,13 +1048,15 @@ if df is not None:
         )
         st.dataframe(pub_table, use_container_width=True, hide_index=True)
 
-        # Copyable table as tab-separated text (paste into Word/Excel)
+        # Copy button for the table (tab-separated for Word/Excel)
         tsv_text = pub_table.to_csv(sep="\t", index=False)
-        st.code(tsv_text, language=None)
-        st.caption(
-            "The table above is tab-separated \u2014 "
-            "click the copy icon and paste directly into Word, Excel, "
-            "or Google Docs."
+        st.download_button(
+            label="Copy table to clipboard (TSV)",
+            data=tsv_text,
+            file_name="reference_interval_table.tsv",
+            mime="text/tab-separated-values",
+            help="Download as tab-separated file \u2014 paste into Word, "
+                 "Excel, or Google Docs.",
         )
 
         # Methods paragraph
@@ -1083,7 +1085,18 @@ if df is not None:
                 partition_col=str(partition_col) if partition_col else None,
             )
 
-        st.code(methods_text, language=None)
+        st.markdown(
+            f'<div style="background-color: #f0f2f6; padding: 1em; '
+            f'border-radius: 0.5em; line-height: 1.6;">{methods_text}</div>',
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            label="Copy methods paragraph (TXT)",
+            data=methods_text,
+            file_name="methods_paragraph.txt",
+            mime="text/plain",
+            help="Download the methods paragraph as a text file.",
+        )
 
 # ---------------------------------------------------------------------------
 # References (always visible)
