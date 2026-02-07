@@ -51,7 +51,7 @@ def _fmt(val, decimals=4):
 
 
 def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: float,
-                   remove_outliers: bool = True):
+                   remove_outliers: bool = True, df_col: str = None):
     """Render detailed results for a single analyte inside a tab."""
     col1, col2 = st.columns(2)
 
@@ -121,7 +121,8 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
 
     # --- Plots ---
     st.markdown("**Distribution**")
-    all_values = df[r.analyte].dropna().values
+    col_name = df_col or r.analyte
+    all_values = df[col_name].dropna().values
 
     # Separate clean data from outliers based on the remove_outliers setting
     outliers_removed = remove_outliers and r.n_outliers > 0
@@ -637,6 +638,7 @@ if df is not None:
         st.session_state["ri_remove_outliers"] = remove_outliers
         st.session_state["ri_partition_results"] = partition_results
         st.session_state["ri_group_results"] = group_ri_results
+        st.session_state["ri_partition_col"] = partition_col
         # Clear any previous interpretation when new results are computed
         st.session_state.pop("ri_interpretation", None)
 
@@ -746,13 +748,20 @@ if df is not None:
                             "**Partitioning not recommended** -- "
                             "subgroup RIs shown for comparison:"
                         )
+                    stored_pcol = st.session_state.get("ri_partition_col")
                     grp_tabs = st.tabs(list(grp_dict.keys()))
                     for grp_tab, (label, grp_r) in zip(grp_tabs,
                                                         grp_dict.items()):
                         with grp_tab:
+                            # Filter df to rows for this group
+                            if stored_pcol and stored_pcol in df.columns:
+                                grp_df = df[df[stored_pcol] == label]
+                            else:
+                                grp_df = df
                             _render_detail(
-                                grp_r, df, stored_limit_conf,
+                                grp_r, grp_df, stored_limit_conf,
                                 stored_remove_outliers,
+                                df_col=analyte_key,
                             )
 
         # --------------------------------------------------------------
