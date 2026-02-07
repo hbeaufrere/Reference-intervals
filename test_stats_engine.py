@@ -164,22 +164,46 @@ class TestParametricRI:
 
 class TestRobustRI:
     def test_basic(self, normal_data):
-        lower, upper, t_bi, s_bi = robust_ri(normal_data)
+        lower, upper, t_bi, s_bi, bc_lmbda = robust_ri(normal_data)
+        # Normal data should NOT trigger Box-Cox (already symmetric)
+        assert bc_lmbda is None
         # Should be similar to parametric for normal data
         p_lower, p_upper = parametric_ri(normal_data)
         assert abs(lower - p_lower) < 10
         assert abs(upper - p_upper) < 10
 
     def test_small_sample(self, normal_small):
-        lower, upper, t_bi, s_bi = robust_ri(normal_small)
+        lower, upper, t_bi, s_bi, _ = robust_ri(normal_small)
         assert lower < upper
         assert not np.isnan(lower)
         assert not np.isnan(upper)
 
     def test_robust_location(self, normal_data):
-        _, _, t_bi, _ = robust_ri(normal_data)
+        _, _, t_bi, _, _ = robust_ri(normal_data)
         # Robust location should be close to median
         assert abs(t_bi - np.median(normal_data)) < 5
+
+    def test_transformed_robust_skewed(self):
+        """Box-Cox + biweight should avoid negative lower limit on skewed data."""
+        rng = np.random.RandomState(42)
+        # Chi-squared with df=3 is right-skewed, all positive
+        skewed = rng.chisquare(df=3, size=80)
+        lower_t, upper_t, _, _, bc_lmbda_t = robust_ri(skewed, transform=True)
+        lower_p, upper_p, _, _, bc_lmbda_p = robust_ri(skewed, transform=False)
+        # Transformed robust should have used Box-Cox
+        assert bc_lmbda_t is not None
+        # Plain robust may produce a negative lower limit; transformed should not
+        assert lower_t >= 0, (
+            f"Transformed robust lower limit should be >= 0, got {lower_t}"
+        )
+        assert upper_t > lower_t
+
+    def test_no_transform_flag(self, normal_data):
+        """transform=False should skip Box-Cox even for non-normal data."""
+        rng = np.random.RandomState(99)
+        skewed = rng.exponential(scale=5, size=60)
+        _, _, _, _, bc_lmbda = robust_ri(skewed, transform=False)
+        assert bc_lmbda is None
 
 
 # ---------------------------------------------------------------------------

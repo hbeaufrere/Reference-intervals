@@ -407,11 +407,11 @@ def parametric_ci(data, ref_conf=0.95, limit_conf=0.90):
 # Robust reference interval (Horn / CLSI C28-A3 Appendix B)
 # ---------------------------------------------------------------------------
 
-def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6):
-    """Compute robust reference interval using the CLSI biweight method.
+def _biweight(data, ref_conf=0.95, max_iter=50, tol=1e-6):
+    """Core biweight estimator (CLSI C28-A3 Appendix B).
 
-    Implements the iterative Tukey biweight algorithm from CLSI C28-A3
-    Appendix B, as used in the R referenceIntervals package.
+    Computes the iterative Tukey biweight location and scale estimates,
+    then derives the reference interval as t_bi +/- z * s_bi.
 
     Parameters
     ----------
@@ -422,11 +422,7 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6):
 
     Returns
     -------
-    lower, upper : float
-    t_bi : float
-        Robust location estimate.
-    s_bi : float
-        Robust scale estimate.
+    lower, upper, t_bi, s_bi : float
     """
     data = np.asarray(data, dtype=float)
     n = len(data)
@@ -474,6 +470,72 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6):
     return lower, upper, t_bi, s_bi
 
 
+def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
+    """Compute robust reference interval using the CLSI biweight method.
+
+    Implements the iterative Tukey biweight algorithm from CLSI C28-A3
+    Appendix B.  When *transform* is True (default) and the data are
+    non-normal, a Box-Cox transformation is applied first to achieve
+    symmetry before computing the biweight — this is the **transformed
+    robust** variant described by Horn, Pesce & Copeland (1998).  The
+    back-transformation naturally constrains limits to the positive
+    domain, preventing biologically implausible negative lower limits.
+
+    If the data are already symmetric (Shapiro-Wilk p >= 0.05) or
+    Box-Cox fails, the plain (untransformed) biweight is used instead.
+
+    Parameters
+    ----------
+    data : array-like
+    ref_conf : float
+    max_iter : int
+    tol : float
+    transform : bool
+        If True, apply Box-Cox before biweight for non-normal data
+        (Horn 1998 "transformed robust").  If False, always use the
+        plain CLSI C28-A3 biweight on native data.
+
+    Returns
+    -------
+    lower, upper : float
+    t_bi : float
+        Robust location estimate (on the original scale for transformed
+        robust this is back-transformed from the median of the biweight).
+    s_bi : float
+        Robust scale estimate (original-scale approximation).
+    boxcox_lambda : float or None
+        Lambda used for Box-Cox, or None if no transformation was applied.
+    """
+    data = np.asarray(data, dtype=float)
+
+    used_transform = False
+    lmbda = None
+    shift = 0.0
+
+    if transform:
+        # Only transform when data appear non-normal (skewed)
+        norm = check_normality(data, alpha=0.05)
+        if not norm["is_normal"]:
+            try:
+                transformed, lmbda, shift = boxcox_transform(data)
+                lower_t, upper_t, t_bi_t, s_bi_t = _biweight(
+                    transformed, ref_conf, max_iter, tol,
+                )
+                # Back-transform limits to original scale
+                lower = boxcox_inverse(lower_t, lmbda, shift)
+                upper = boxcox_inverse(upper_t, lmbda, shift)
+                t_bi = boxcox_inverse(t_bi_t, lmbda, shift)
+                s_bi = s_bi_t  # scale on transformed domain
+                used_transform = True
+            except Exception:
+                pass  # fall through to plain biweight
+
+    if not used_transform:
+        lower, upper, t_bi, s_bi = _biweight(data, ref_conf, max_iter, tol)
+
+    return lower, upper, t_bi, s_bi, lmbda
+
+
 # ---------------------------------------------------------------------------
 # Bootstrap confidence intervals
 # ---------------------------------------------------------------------------
@@ -509,7 +571,7 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
         elif method == "parametric":
             lo, hi = parametric_ri(sample, ref_conf)
         elif method == "robust":
-            lo, hi, _, _ = robust_ri(sample, ref_conf)
+            lo, hi, _, _, _ = robust_ri(sample, ref_conf, transform=False)
         else:
             lo, hi = nonparametric_ri(sample, ref_conf)
         boot_lower[i] = lo
@@ -776,8 +838,15 @@ def calculate_reference_interval(
                 lower, upper = parametric_ri(analysis_data, ref_conf)
                 result.method_ri = "Parametric (Gaussian assumed)"
     elif chosen_ri == "robust":
-        lower, upper, t_bi, s_bi = robust_ri(analysis_data, ref_conf)
-        result.method_ri = "Robust (CLSI C28-A3 biweight)"
+        lower, upper, t_bi, s_bi, bc_lmbda = robust_ri(analysis_data, ref_conf)
+        if bc_lmbda is not None:
+            result.boxcox_lambda = float(bc_lmbda)
+            result.method_ri = (
+                f"Robust transformed (Box-Cox lambda={bc_lmbda:.3f} + "
+                f"CLSI biweight)"
+            )
+        else:
+            result.method_ri = "Robust (CLSI C28-A3 biweight)"
     else:
         lower, upper = nonparametric_ri(analysis_data, ref_conf)
         result.method_ri = "Nonparametric (rank-based percentile)"
