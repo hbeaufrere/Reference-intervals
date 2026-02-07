@@ -377,22 +377,12 @@ n_boot = st.sidebar.number_input(
     help="Number of bootstrap resamples for CI estimation.",
 )
 
-st.sidebar.subheader("AI Interpretation")
-
-# Resolve API key: st.secrets > env var > manual input
-_default_key = ""
+# Resolve API key from secrets or environment
+_api_key = ""
 try:
-    _default_key = st.secrets["ANTHROPIC_API_KEY"]
+    _api_key = st.secrets["ANTHROPIC_API_KEY"]
 except (KeyError, FileNotFoundError):
-    _default_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
-api_key = st.sidebar.text_input(
-    "Anthropic API key",
-    type="password",
-    value=_default_key,
-    help="Required for AI-powered interpretation of results. "
-         "Auto-filled from Streamlit secrets or ANTHROPIC_API_KEY env var.",
-)
+    _api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Main content
@@ -479,8 +469,6 @@ if uploaded_file is not None:
     # Run analysis
     # ------------------------------------------------------------------
     if st.button("Calculate Reference Intervals", type="primary"):
-        st.header("3. Results")
-
         all_results: list[ReferenceIntervalResult] = []
 
         progress = st.progress(0)
@@ -502,6 +490,23 @@ if uploaded_file is not None:
 
         progress.empty()
 
+        # Store results in session state so they persist across reruns
+        st.session_state["ri_results"] = all_results
+        st.session_state["ri_limit_conf"] = limit_conf
+        st.session_state["ri_remove_outliers"] = remove_outliers
+        # Clear any previous interpretation when new results are computed
+        st.session_state.pop("ri_interpretation", None)
+
+    # ------------------------------------------------------------------
+    # Display results (from session state, persists across reruns)
+    # ------------------------------------------------------------------
+    if "ri_results" in st.session_state:
+        all_results = st.session_state["ri_results"]
+        stored_limit_conf = st.session_state["ri_limit_conf"]
+        stored_remove_outliers = st.session_state["ri_remove_outliers"]
+
+        st.header("3. Results")
+
         # --------------------------------------------------------------
         # Summary table
         # --------------------------------------------------------------
@@ -515,10 +520,10 @@ if uploaded_file is not None:
                 "Method": r.method_ri,
                 "Lower RI": _fmt(r.lower_limit),
                 "Upper RI": _fmt(r.upper_limit),
-                f"Lower {limit_conf*100:.0f}% CI": (
+                f"Lower {stored_limit_conf*100:.0f}% CI": (
                     f"{_fmt(r.lower_ci_low)} \u2013 {_fmt(r.lower_ci_high)}"
                 ),
-                f"Upper {limit_conf*100:.0f}% CI": (
+                f"Upper {stored_limit_conf*100:.0f}% CI": (
                     f"{_fmt(r.upper_ci_low)} \u2013 {_fmt(r.upper_ci_high)}"
                 ),
                 "Normal (p)": (
@@ -538,33 +543,38 @@ if uploaded_file is not None:
 
         for tab, r in zip(tabs, all_results):
             with tab:
-                _render_detail(r, df, limit_conf, remove_outliers)
+                _render_detail(r, df, stored_limit_conf, stored_remove_outliers)
 
         # --------------------------------------------------------------
         # AI Interpretation
         # --------------------------------------------------------------
         st.subheader("AI Interpretation")
-        if not api_key:
+        if not _api_key:
             st.info(
-                "Enter your Anthropic API key in the sidebar to enable "
-                "AI-powered interpretation of the results."
+                "Set ANTHROPIC_API_KEY in Streamlit secrets or as an "
+                "environment variable to enable AI-powered interpretation."
             )
         else:
             if st.button("Generate AI Interpretation", type="secondary"):
                 with st.spinner("Generating interpretation..."):
                     try:
                         interpretation = get_interpretation(
-                            all_results, api_key=api_key,
+                            all_results, api_key=_api_key,
                         )
-                        st.markdown(interpretation)
+                        st.session_state["ri_interpretation"] = interpretation
                     except Exception as e:
+                        st.session_state["ri_interpretation"] = None
                         st.error(f"Interpretation failed: {e}")
+
+            # Display stored interpretation
+            if "ri_interpretation" in st.session_state and st.session_state["ri_interpretation"]:
+                st.markdown(st.session_state["ri_interpretation"])
 
         # --------------------------------------------------------------
         # Download results
         # --------------------------------------------------------------
         st.subheader("Download Results")
-        excel_buf = _results_to_excel(all_results, summary_df, limit_conf)
+        excel_buf = _results_to_excel(all_results, summary_df, stored_limit_conf)
         st.download_button(
             label="Download Results as Excel",
             data=excel_buf,
