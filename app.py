@@ -388,7 +388,13 @@ except (KeyError, FileNotFoundError):
 # Main content
 # ---------------------------------------------------------------------------
 
-st.title("Reference Interval Calculator")
+st.markdown(
+    "<h1 style='text-align: center;'>Reference Interval Calculator</h1>"
+    "<p style='text-align: center; font-size: 0.9em; margin-top: -10px;'>"
+    "Hugues Beaufrère, DVM, PhD, DACZM<br>"
+    "UC Davis \u2013 Weill School of Veterinary Medicine</p>",
+    unsafe_allow_html=True,
+)
 st.markdown(
     "Calculate de novo reference intervals following "
     "**ASVCP guidelines** (Friedrichs et al., 2012) and "
@@ -548,7 +554,7 @@ if uploaded_file is not None:
         # --------------------------------------------------------------
         # AI Interpretation
         # --------------------------------------------------------------
-        st.subheader("AI Interpretation")
+        st.subheader("AI Interpretation (powered by Claude)")
         if not _api_key:
             st.info(
                 "Set ANTHROPIC_API_KEY in Streamlit secrets or as an "

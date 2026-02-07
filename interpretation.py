@@ -56,9 +56,11 @@ Evaluate whether these reference intervals are suitable for clinical use. \
 Check for and flag any of the following issues:
 - **Negative lower limits** for analytes that are biologically impossible to \
 be negative (e.g., concentrations, enzyme activities, cell counts).
-- **Sample size concerns** -- n < 40 is problematic; n < 120 limits the \
-nonparametric approach; note when robust or parametric methods were used \
-as fallback.
+- **Sample size concerns** -- n < 40 is genuinely problematic and should \
+be flagged clearly. Sample sizes between 40 and 120 are generally \
+acceptable; the nonparametric method requires n >= 120, but robust or \
+parametric approaches are statistically valid alternatives for smaller \
+samples, so do NOT flag 40 <= n < 120 as a major concern.
 - **Wide confidence intervals** relative to the RI width, suggesting \
 imprecise limits (CI width > 0.2 * RI width is the Harris-Boyd criterion).
 - **High proportion of outliers** removed (> 5% may indicate a \
