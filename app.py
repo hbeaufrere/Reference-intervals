@@ -353,12 +353,20 @@ n_boot = st.sidebar.number_input(
 )
 
 st.sidebar.subheader("AI Interpretation")
+
+# Resolve API key: st.secrets > env var > manual input
+_default_key = ""
+try:
+    _default_key = st.secrets["ANTHROPIC_API_KEY"]
+except (KeyError, FileNotFoundError):
+    _default_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
 api_key = st.sidebar.text_input(
     "Anthropic API key",
     type="password",
-    value=os.environ.get("ANTHROPIC_API_KEY", ""),
+    value=_default_key,
     help="Required for AI-powered interpretation of results. "
-         "You can also set the ANTHROPIC_API_KEY environment variable.",
+         "Auto-filled from Streamlit secrets or ANTHROPIC_API_KEY env var.",
 )
 
 # ---------------------------------------------------------------------------
