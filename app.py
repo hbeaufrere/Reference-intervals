@@ -11,6 +11,7 @@ Usage
 """
 
 import io
+import os
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,6 +21,7 @@ from stats_engine import (
     calculate_reference_interval,
     ReferenceIntervalResult,
 )
+from interpretation import get_interpretation
 
 # ---------------------------------------------------------------------------
 # Page configuration
@@ -239,9 +241,21 @@ def _render_references():
 6. Reed AH, Henry RJ, Mason WB. Influence of statistical method used on
    the resulting estimate of normal range. *Clin Chem.* 1971;17(4):275-284.
 
+**Le Boedec adjusted method:**
+
+7. Le Boedec K. Sensitivity and specificity of normality tests and
+   consequences on reference interval accuracy at small sample size:
+   a computer-simulation study. *Vet Clin Pathol.* 2016;45(4):648-656.
+   doi:[10.1111/vcp.12390](https://doi.org/10.1111/vcp.12390)
+
+8. Le Boedec K. Reference interval estimation of small sample sizes:
+   a methodologic comparison using a computer-simulation study.
+   *Vet Clin Pathol.* 2019;48(2):335-346.
+   doi:[10.1111/vcp.12725](https://doi.org/10.1111/vcp.12725)
+
 **Software:**
 
-7. Finnegan D. referenceIntervals: Reference Intervals. R package version
+9. Finnegan D. referenceIntervals: Reference Intervals. R package version
    1.3.1. 2024. Available from:
    [https://CRAN.R-project.org/package=referenceIntervals](https://CRAN.R-project.org/package=referenceIntervals).
    *The statistical methods in this application were inspired by and
@@ -297,17 +311,21 @@ remove_outliers = st.sidebar.checkbox(
 st.sidebar.subheader("RI Method")
 ri_method = st.sidebar.selectbox(
     "Calculation method",
-    options=["auto", "nonparametric", "robust", "parametric"],
+    options=["auto", "le_boedec", "nonparametric", "robust", "parametric"],
     index=0,
     format_func={
         "auto": "Automatic (ASVCP guideline)",
+        "le_boedec": "Automatic (Le Boedec adjustment)",
         "nonparametric": "Nonparametric",
         "robust": "Robust (Horn / CLSI biweight)",
         "parametric": "Parametric",
     }.get,
     help=(
-        "Auto: nonparametric if n >= 120, robust if 20 <= n < 120, "
-        "parametric otherwise. Per ASVCP guidelines."
+        "**ASVCP auto:** nonparametric if n >= 120, robust if 20 <= n < 120, "
+        "parametric otherwise.\n\n"
+        "**Le Boedec:** Uses Shapiro-Wilk with raised P > 0.2 threshold "
+        "(instead of 0.05) for small samples. Selects parametric if Gaussian, "
+        "nonparametric otherwise. Based on Le Boedec 2016 & 2019."
     ),
 )
 
@@ -332,6 +350,15 @@ n_boot = st.sidebar.number_input(
     "Bootstrap resamples",
     min_value=1000, max_value=50000, value=5000, step=1000,
     help="Number of bootstrap resamples for CI estimation.",
+)
+
+st.sidebar.subheader("AI Interpretation")
+api_key = st.sidebar.text_input(
+    "Anthropic API key",
+    type="password",
+    value=os.environ.get("ANTHROPIC_API_KEY", ""),
+    help="Required for AI-powered interpretation of results. "
+         "You can also set the ANTHROPIC_API_KEY environment variable.",
 )
 
 # ---------------------------------------------------------------------------
@@ -479,6 +506,26 @@ if uploaded_file is not None:
         for tab, r in zip(tabs, all_results):
             with tab:
                 _render_detail(r, df, limit_conf)
+
+        # --------------------------------------------------------------
+        # AI Interpretation
+        # --------------------------------------------------------------
+        st.subheader("AI Interpretation")
+        if not api_key:
+            st.info(
+                "Enter your Anthropic API key in the sidebar to enable "
+                "AI-powered interpretation of the results."
+            )
+        else:
+            if st.button("Generate AI Interpretation", type="secondary"):
+                with st.spinner("Generating interpretation..."):
+                    try:
+                        interpretation = get_interpretation(
+                            all_results, api_key=api_key,
+                        )
+                        st.markdown(interpretation)
+                    except Exception as e:
+                        st.error(f"Interpretation failed: {e}")
 
         # --------------------------------------------------------------
         # Download results

@@ -525,6 +525,84 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
 
 
 # ---------------------------------------------------------------------------
+# Le Boedec reference interval (2016 / 2019 adjusted strategy)
+# ---------------------------------------------------------------------------
+
+def le_boedec_ri(data, ref_conf=0.95):
+    """Compute reference interval using the Le Boedec (2019) strategy.
+
+    Decision algorithm based on Le Boedec K, Vet Clin Pathol 2019;48:335-346:
+      - n >= 120: nonparametric
+      - 40 <= n < 120: Shapiro-Wilk conditional with raised threshold P > 0.2
+          - If SW p > 0.2 (data appears Gaussian): parametric
+          - If SW p <= 0.2 (non-Gaussian):
+              - Lower limit: nonparametric
+              - Upper limit at n <= 40: Box-Cox + parametric
+              - Upper limit at n > 40: nonparametric
+      - n < 40: nonparametric for both limits
+
+    The raised P > 0.2 threshold (instead of 0.05) is based on Le Boedec K,
+    Vet Clin Pathol 2016;45:648-656, which showed that the standard alpha=0.05
+    has poor specificity (~50%) at small sample sizes, leading to erroneous
+    application of parametric methods to non-Gaussian data.
+
+    Parameters
+    ----------
+    data : array-like
+    ref_conf : float
+
+    Returns
+    -------
+    lower : float
+    upper : float
+    method_description : str
+    """
+    data = np.asarray(data, dtype=float)
+    n = len(data)
+
+    # n >= 120: standard nonparametric (same as ASVCP)
+    if n >= 120:
+        lower, upper = nonparametric_ri(data, ref_conf)
+        return lower, upper, "Nonparametric (n >= 120)"
+
+    # n < 40: nonparametric for both limits
+    if n < 40:
+        lower, upper = nonparametric_ri(data, ref_conf)
+        return lower, upper, "Nonparametric (n < 40, Le Boedec)"
+
+    # 40 <= n < 120: Shapiro-Wilk conditional with P > 0.2
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, sw_p = stats.shapiro(data)
+
+    if sw_p > 0.2:
+        # Data appears Gaussian with the raised threshold
+        lower, upper = parametric_ri(data, ref_conf)
+        return lower, upper, f"Parametric (Shapiro-Wilk p={sw_p:.3f} > 0.2)"
+
+    # Non-Gaussian: lower limit is always nonparametric
+    lower, _ = nonparametric_ri(data, ref_conf)
+
+    if n <= 40:
+        # Special case: Box-Cox + parametric for upper limit at n ~ 40
+        try:
+            transformed, lmbda, shift = boxcox_transform(data)
+            _, t_upper = parametric_ri(transformed, ref_conf)
+            upper = boxcox_inverse(t_upper, lmbda, shift)
+            method = (f"Lower: nonparametric; Upper: Box-Cox parametric "
+                      f"(n={n}, SW p={sw_p:.3f} <= 0.2)")
+        except Exception:
+            _, upper = nonparametric_ri(data, ref_conf)
+            method = (f"Nonparametric (Box-Cox failed, n={n}, "
+                      f"SW p={sw_p:.3f} <= 0.2)")
+    else:
+        _, upper = nonparametric_ri(data, ref_conf)
+        method = f"Nonparametric (SW p={sw_p:.3f} <= 0.2)"
+
+    return lower, upper, method
+
+
+# ---------------------------------------------------------------------------
 # Main reference interval calculation
 # ---------------------------------------------------------------------------
 
@@ -632,7 +710,9 @@ def calculate_reference_interval(
 
     # --- Select RI method ---
     n = result.n_used
-    if ri_method == "auto":
+    if ri_method == "le_boedec":
+        chosen_ri = "le_boedec"
+    elif ri_method == "auto":
         if n >= 120:
             chosen_ri = "nonparametric"
         elif n >= 20:
@@ -646,21 +726,25 @@ def calculate_reference_interval(
         chosen_ri = ri_method
 
     # Additional warnings per ASVCP guidelines
-    if n < 40:
-        result.warnings.append(
-            f"Sample size (n={n}) is below 40. ASVCP recommends n >= 40 "
-            f"for robust methods. Results should be treated with caution."
-        )
-    elif n < 120 and chosen_ri == "nonparametric":
-        result.warnings.append(
-            f"Sample size (n={n}) is below 120 recommended for nonparametric "
-            f"method. Consider using robust method instead."
-        )
-        if ri_method == "auto":
-            chosen_ri = "robust"
+    if chosen_ri != "le_boedec":
+        if n < 40:
+            result.warnings.append(
+                f"Sample size (n={n}) is below 40. ASVCP recommends n >= 40 "
+                f"for robust methods. Results should be treated with caution."
+            )
+        elif n < 120 and chosen_ri == "nonparametric":
+            result.warnings.append(
+                f"Sample size (n={n}) is below 120 recommended for nonparametric "
+                f"method. Consider using robust method instead."
+            )
+            if ri_method == "auto":
+                chosen_ri = "robust"
 
     # --- Compute reference interval ---
-    if chosen_ri == "nonparametric":
+    if chosen_ri == "le_boedec":
+        lower, upper, method_desc = le_boedec_ri(analysis_data, ref_conf)
+        result.method_ri = f"Le Boedec: {method_desc}"
+    elif chosen_ri == "nonparametric":
         lower, upper = nonparametric_ri(analysis_data, ref_conf)
         result.method_ri = "Nonparametric (rank-based percentile)"
     elif chosen_ri == "parametric":
@@ -703,7 +787,13 @@ def calculate_reference_interval(
 
     # --- Compute confidence intervals ---
     if ci_method == "auto":
-        if chosen_ri == "nonparametric" and n >= 120:
+        if chosen_ri == "le_boedec":
+            # Le Boedec mixes methods; bootstrap is safest
+            if n >= 120:
+                chosen_ci = "nonparametric"
+            else:
+                chosen_ci = "bootstrap"
+        elif chosen_ri == "nonparametric" and n >= 120:
             chosen_ci = "nonparametric"
         elif chosen_ri == "parametric" and result.is_normal:
             chosen_ci = "parametric"

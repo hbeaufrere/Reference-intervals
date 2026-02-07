@@ -12,6 +12,7 @@ from stats_engine import (
     nonparametric_ri,
     parametric_ri,
     robust_ri,
+    le_boedec_ri,
     bootstrap_ci,
     parametric_ci,
     calculate_reference_interval,
@@ -203,6 +204,57 @@ class TestBootstrapCI:
     def test_bootstrap_robust(self, normal_small):
         ci = bootstrap_ci(normal_small, method="robust", n_boot=1000)
         assert len(ci) == 4
+
+
+# ---------------------------------------------------------------------------
+# Le Boedec reference interval
+# ---------------------------------------------------------------------------
+
+class TestLeBoedecRI:
+    def test_large_sample_uses_nonparametric(self, normal_data):
+        """n=200 should use nonparametric."""
+        lower, upper, method = le_boedec_ri(normal_data)
+        assert "Nonparametric" in method
+        assert "n >= 120" in method
+
+    def test_small_sample_uses_nonparametric(self):
+        """n < 40 should use nonparametric."""
+        rng = np.random.RandomState(42)
+        data = rng.normal(50, 5, 25)
+        lower, upper, method = le_boedec_ri(data)
+        assert "Nonparametric" in method
+        assert "n < 40" in method
+
+    def test_medium_gaussian_uses_parametric(self):
+        """n=60 Gaussian data with SW p > 0.2 should use parametric."""
+        rng = np.random.RandomState(42)
+        data = rng.normal(100, 10, 60)
+        lower, upper, method = le_boedec_ri(data)
+        # Gaussian data should pass SW at p > 0.2
+        assert lower < upper
+
+    def test_medium_skewed_uses_nonparametric(self):
+        """n=60 skewed data with SW p <= 0.2 should use nonparametric."""
+        rng = np.random.RandomState(42)
+        data = rng.lognormal(3, 0.8, 60)
+        lower, upper, method = le_boedec_ri(data)
+        assert lower < upper
+
+    def test_via_calculate_ri(self, normal_data):
+        """Test Le Boedec through the main calculate function."""
+        result = calculate_reference_interval(
+            normal_data, ri_method="le_boedec"
+        )
+        assert "Le Boedec" in result.method_ri
+        assert not np.isnan(result.lower_limit)
+        assert not np.isnan(result.upper_limit)
+
+    def test_via_calculate_ri_small(self, normal_small):
+        """Test Le Boedec with small sample through main calculate function."""
+        result = calculate_reference_interval(
+            normal_small, ri_method="le_boedec"
+        )
+        assert "Le Boedec" in result.method_ri
 
 
 # ---------------------------------------------------------------------------
