@@ -47,7 +47,8 @@ def _fmt(val, decimals=4):
     return f"{val:.{decimals}f}"
 
 
-def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: float):
+def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: float,
+                   remove_outliers: bool = True):
     """Render detailed results for a single analyte inside a tab."""
     col1, col2 = st.columns(2)
 
@@ -115,12 +116,34 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
 
     # --- Plots ---
     st.markdown("**Distribution**")
-    values = df[r.analyte].dropna().values
+    all_values = df[r.analyte].dropna().values
+
+    # Separate clean data from outliers based on the remove_outliers setting
+    outliers_removed = remove_outliers and r.n_outliers > 0
+    if outliers_removed and r.outlier_indices:
+        # Build a mask over the non-NaN values
+        mask = np.ones(len(all_values), dtype=bool)
+        for idx in r.outlier_indices:
+            if idx < len(mask):
+                mask[idx] = False
+        clean_values = all_values[mask]
+        outlier_vals = all_values[~mask]
+    else:
+        clean_values = all_values
+        outlier_vals = np.array([])
+
+    # The values used for plots match what was used for RI calculation
+    plot_values = clean_values if outliers_removed else all_values
+
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
 
     # Histogram with RI overlay
     ax = axes[0]
-    ax.hist(values, bins="auto", color="#4a90d9", edgecolor="white", alpha=0.8)
+    ax.hist(plot_values, bins="auto", color="#4a90d9", edgecolor="white",
+            alpha=0.8, label="Used data")
+    if outliers_removed and len(outlier_vals) > 0:
+        ax.hist(outlier_vals, bins="auto", color="#e67e22", edgecolor="white",
+                alpha=0.6, label=f"Outliers removed ({len(outlier_vals)})")
     ax.axvline(r.lower_limit, color="#e74c3c", linestyle="--", linewidth=1.5,
                label=f"Lower RI ({_fmt(r.lower_limit, 2)})")
     ax.axvline(r.upper_limit, color="#e74c3c", linestyle="--", linewidth=1.5,
@@ -130,33 +153,35 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
         ax.axvspan(r.upper_ci_low, r.upper_ci_high, alpha=0.15, color="#e74c3c")
     ax.set_xlabel(r.analyte)
     ax.set_ylabel("Frequency")
-    ax.set_title("Histogram")
+    ax.set_title("Histogram" + (" (outliers removed)" if outliers_removed else ""))
     ax.legend(fontsize=7)
 
     # Box plot
     ax = axes[1]
-    ax.boxplot(values, vert=True, patch_artist=True,
+    ax.boxplot(plot_values, vert=True, patch_artist=True,
                boxprops=dict(facecolor="#4a90d9", alpha=0.6),
                medianprops=dict(color="#e74c3c", linewidth=2))
-    if r.outlier_values:
+    if outliers_removed and len(outlier_vals) > 0:
         ax.scatter(
-            [1] * len(r.outlier_values), r.outlier_values,
-            color="#e74c3c", zorder=5, s=40, label="Outliers",
+            [1] * len(outlier_vals), outlier_vals,
+            color="#e67e22", zorder=5, s=40, marker="x", linewidths=2,
+            label=f"Outliers removed ({len(outlier_vals)})",
         )
         ax.legend(fontsize=7)
     ax.set_ylabel(r.analyte)
-    ax.set_title("Box Plot")
+    ax.set_title("Box Plot" + (" (outliers removed)" if outliers_removed else ""))
     ax.set_xticklabels([r.analyte])
 
     # Q-Q plot
     ax = axes[2]
-    (osm, osr), (slope, intercept, _) = sp_stats.probplot(values, dist="norm")
+    (osm, osr), (slope, intercept, _) = sp_stats.probplot(
+        plot_values, dist="norm")
     ax.scatter(osm, osr, s=15, color="#4a90d9", alpha=0.7)
     line_x = np.array([osm.min(), osm.max()])
     ax.plot(line_x, slope * line_x + intercept, color="#e74c3c", linewidth=1.5)
     ax.set_xlabel("Theoretical Quantiles")
     ax.set_ylabel("Sample Quantiles")
-    ax.set_title("Q-Q Plot")
+    ax.set_title("Q-Q Plot" + (" (outliers removed)" if outliers_removed else ""))
 
     fig.tight_layout()
     st.pyplot(fig)
@@ -513,7 +538,7 @@ if uploaded_file is not None:
 
         for tab, r in zip(tabs, all_results):
             with tab:
-                _render_detail(r, df, limit_conf)
+                _render_detail(r, df, limit_conf, remove_outliers)
 
         # --------------------------------------------------------------
         # AI Interpretation
