@@ -706,7 +706,9 @@ elif st.session_state.get("use_example"):
 if df is not None:
 
     st.subheader("Data Preview")
-    st.dataframe(df, use_container_width=True)
+    preview_df = df.copy()
+    preview_df.index = range(1, len(preview_df) + 1)
+    st.dataframe(preview_df, use_container_width=True)
 
     id_col = df.columns[0]
     analyte_cols = df.columns[1:]
@@ -1046,6 +1048,15 @@ if df is not None:
         )
         st.dataframe(pub_table, use_container_width=True, hide_index=True)
 
+        # Copyable table as tab-separated text (paste into Word/Excel)
+        tsv_text = pub_table.to_csv(sep="\t", index=False)
+        st.code(tsv_text, language=None)
+        st.caption(
+            "The table above is tab-separated \u2014 "
+            "click the copy icon and paste directly into Word, Excel, "
+            "or Google Docs."
+        )
+
         # Methods paragraph
         st.markdown("**Methods Paragraph**")
         if stored_settings:
@@ -1072,12 +1083,7 @@ if df is not None:
                 partition_col=str(partition_col) if partition_col else None,
             )
 
-        st.text_area(
-            "Copy this paragraph into your article's methods section:",
-            value=methods_text,
-            height=250,
-            help="This paragraph is auto-generated based on your analysis settings.",
-        )
+        st.code(methods_text, language=None)
 
 # ---------------------------------------------------------------------------
 # References (always visible)
