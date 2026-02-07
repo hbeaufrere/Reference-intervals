@@ -428,35 +428,30 @@ def _render_publication_table(
             if pt.partition_recommended:
                 partitioned_analytes.add(pt.analyte)
 
+    def _pub_row(label, res):
+        return {
+            "Analyte": label,
+            "n": res.n_used,
+            "Mean": _fmt(res.mean, 2),
+            "Median": _fmt(res.median, 2),
+            "Min": _fmt(res.min_val, 2),
+            "Max": _fmt(res.max_val, 2),
+            "RI": f"{_fmt(res.lower_limit, 2)}\u2013{_fmt(res.upper_limit, 2)}",
+            f"Lower limit {limit_conf*100:.0f}% CI": (
+                f"{_fmt(res.lower_ci_low, 2)}\u2013{_fmt(res.lower_ci_high, 2)}"
+            ),
+            f"Upper limit {limit_conf*100:.0f}% CI": (
+                f"{_fmt(res.upper_ci_low, 2)}\u2013{_fmt(res.upper_ci_high, 2)}"
+            ),
+            "Method": res.method_ri,
+        }
+
     for r in results:
         if r.analyte in partitioned_analytes and group_ri_results and r.analyte in group_ri_results:
-            # Show per-group rows instead of combined
             for label, gr in group_ri_results[r.analyte].items():
-                rows.append({
-                    "Analyte": f"{r.analyte} ({label})",
-                    "n": gr.n_used,
-                    "RI": f"{_fmt(gr.lower_limit, 2)}\u2013{_fmt(gr.upper_limit, 2)}",
-                    f"Lower limit {limit_conf*100:.0f}% CI": (
-                        f"{_fmt(gr.lower_ci_low, 2)}\u2013{_fmt(gr.lower_ci_high, 2)}"
-                    ),
-                    f"Upper limit {limit_conf*100:.0f}% CI": (
-                        f"{_fmt(gr.upper_ci_low, 2)}\u2013{_fmt(gr.upper_ci_high, 2)}"
-                    ),
-                    "Method": gr.method_ri,
-                })
+                rows.append(_pub_row(f"{r.analyte} ({label})", gr))
         else:
-            rows.append({
-                "Analyte": r.analyte,
-                "n": r.n_used,
-                "RI": f"{_fmt(r.lower_limit, 2)}\u2013{_fmt(r.upper_limit, 2)}",
-                f"Lower limit {limit_conf*100:.0f}% CI": (
-                    f"{_fmt(r.lower_ci_low, 2)}\u2013{_fmt(r.lower_ci_high, 2)}"
-                ),
-                f"Upper limit {limit_conf*100:.0f}% CI": (
-                    f"{_fmt(r.upper_ci_low, 2)}\u2013{_fmt(r.upper_ci_high, 2)}"
-                ),
-                "Method": r.method_ri,
-            })
+            rows.append(_pub_row(r.analyte, r))
 
     return pd.DataFrame(rows)
 
