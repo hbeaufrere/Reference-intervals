@@ -541,7 +541,7 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
 # ---------------------------------------------------------------------------
 
 def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
-                 n_boot=5000, seed=42):
+                 n_boot=5000, seed=42, robust_transform=True):
     """Compute bootstrap confidence intervals for reference limits.
 
     Parameters
@@ -553,6 +553,10 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
     limit_conf : float
     n_boot : int
     seed : int
+    robust_transform : bool
+        When method="robust", whether to apply Box-Cox transformation
+        before the biweight in each bootstrap resample.  Should match
+        the transform setting used for the point estimate.
 
     Returns
     -------
@@ -571,7 +575,8 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
         elif method == "parametric":
             lo, hi = parametric_ri(sample, ref_conf)
         elif method == "robust":
-            lo, hi, _, _, _ = robust_ri(sample, ref_conf, transform=False)
+            lo, hi, _, _, _ = robust_ri(sample, ref_conf,
+                                        transform=robust_transform)
         else:
             lo, hi = nonparametric_ri(sample, ref_conf)
         boot_lower[i] = lo
@@ -854,6 +859,10 @@ def calculate_reference_interval(
     result.lower_limit = float(lower)
     result.upper_limit = float(upper)
 
+    # Track whether robust used Box-Cox so bootstrap CI matches
+    _robust_used_transform = (chosen_ri == "robust"
+                              and result.boxcox_lambda is not None)
+
     # --- Compute confidence intervals ---
     if ci_method == "auto":
         if chosen_ri == "le_boedec":
@@ -881,7 +890,8 @@ def calculate_reference_interval(
         else:
             ci_vals = bootstrap_ci(
                 analysis_data, method=chosen_ri, ref_conf=ref_conf,
-                limit_conf=limit_conf, n_boot=n_boot
+                limit_conf=limit_conf, n_boot=n_boot,
+                robust_transform=_robust_used_transform,
             )
             result.method_ci = f"Bootstrap (n={n_boot})"
 

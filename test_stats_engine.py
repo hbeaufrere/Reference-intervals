@@ -229,6 +229,22 @@ class TestBootstrapCI:
         ci = bootstrap_ci(normal_small, method="robust", n_boot=1000)
         assert len(ci) == 4
 
+    def test_bootstrap_robust_transformed_ci_contains_ri(self):
+        """Bootstrap CI with transform=True should contain the RI limits."""
+        rng = np.random.RandomState(42)
+        skewed = rng.chisquare(df=3, size=80)
+        lower, upper, _, _, bc_lmbda = robust_ri(skewed, transform=True)
+        assert bc_lmbda is not None, "Expected Box-Cox to be applied"
+        ci = bootstrap_ci(skewed, method="robust", n_boot=2000,
+                          robust_transform=True)
+        # The 90% CI should contain the point estimate
+        assert ci[0] <= lower <= ci[1], (
+            f"Lower RI {lower:.4f} not in CI [{ci[0]:.4f}, {ci[1]:.4f}]"
+        )
+        assert ci[2] <= upper <= ci[3], (
+            f"Upper RI {upper:.4f} not in CI [{ci[2]:.4f}, {ci[3]:.4f}]"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Le Boedec reference interval
