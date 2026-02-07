@@ -22,6 +22,7 @@ from stats_engine import (
     ReferenceIntervalResult,
 )
 from interpretation import get_interpretation
+from example_data import get_example_dataframe
 
 # ---------------------------------------------------------------------------
 # Page configuration
@@ -422,10 +423,17 @@ uploaded_file = st.file_uploader(
     help="Accepted formats: .xlsx, .xls",
 )
 
+st.markdown("**Or** try with a built-in example dataset:")
+if st.button("Load example dataset (cockatiel lipid panel)"):
+    st.session_state["use_example"] = True
+    # Clear previous results when switching datasets
+    st.session_state.pop("ri_results", None)
+    st.session_state.pop("ri_interpretation", None)
+
+# Determine which data source to use
+df = None
 if uploaded_file is not None:
-    # ------------------------------------------------------------------
-    # Read and preview data
-    # ------------------------------------------------------------------
+    st.session_state.pop("use_example", None)
     try:
         df = pd.read_excel(uploaded_file, engine="openpyxl")
     except Exception:
@@ -435,6 +443,15 @@ if uploaded_file is not None:
         except Exception as e:
             st.error(f"Failed to read file: {e}")
             st.stop()
+elif st.session_state.get("use_example"):
+    df = get_example_dataframe()
+    st.caption(
+        "Example dataset: triglycerides and cholesterol (mg/dL) "
+        "from 80 mixed-sex cockatiels (*Nymphicus hollandicus*). "
+        "Simulated data based on published psittacine lipid ranges."
+    )
+
+if df is not None:
 
     st.subheader("Data Preview")
     st.dataframe(df.head(20), use_container_width=True)
@@ -483,7 +500,7 @@ if uploaded_file is not None:
 
         progress = st.progress(0)
         for i, col in enumerate(selected):
-            values = df[col].dropna().values
+            values = df[col].values
             result = calculate_reference_interval(
                 values,
                 analyte_name=str(col),
