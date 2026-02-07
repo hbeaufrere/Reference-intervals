@@ -240,6 +240,227 @@ def _results_to_excel(results, summary_df, limit_conf):
     return buf
 
 
+def _generate_methods_paragraph(
+    results: list[ReferenceIntervalResult],
+    ref_conf: float,
+    limit_conf: float,
+    outlier_method: str,
+    remove_outliers: bool,
+    ri_method: str,
+    ci_method: str,
+    n_boot: int,
+    partition_results: list = None,
+    partition_test_method: str = None,
+    partition_col: str = None,
+) -> str:
+    """Generate a publication-ready methods paragraph for a scientific article."""
+    n_analytes = len(results)
+    analyte_names = [r.analyte for r in results]
+    sample_sizes = [r.n_total for r in results]
+    n_min, n_max = min(sample_sizes), max(sample_sizes)
+
+    # RI method description
+    ri_method_map = {
+        "auto": (
+            "Reference intervals were determined following ASVCP guidelines "
+            "(Friedrichs et al., 2012). Method selection was automatic: "
+            "nonparametric rank-based estimation was used when n \u2265 120, "
+            "the robust method (Horn et al., 1998) when 20 \u2264 n < 120, "
+            "and parametric estimation otherwise"
+        ),
+        "le_boedec": (
+            "Reference intervals were determined using the Le Boedec adjusted "
+            "strategy (Le Boedec, 2016; 2019). "
+            "For each analyte, normality was assessed using the Shapiro-Wilk "
+            "test with a raised threshold of P > 0.2 (to reduce erroneous "
+            "application of parametric methods at small sample sizes). "
+            "Parametric estimation was used when the Gaussian assumption was "
+            "supported; nonparametric rank-based estimation was used otherwise"
+        ),
+        "nonparametric": (
+            "Reference intervals were determined using the nonparametric "
+            "rank-based method, as recommended by ASVCP guidelines "
+            "(Friedrichs et al., 2012) and CLSI EP28-A3c for sample sizes "
+            "\u2265 120"
+        ),
+        "robust": (
+            "Reference intervals were determined using the robust method "
+            "(Horn et al., 1998; CLSI C28-A3 Appendix B), which applies "
+            "iterative biweight estimation of central tendency and spread. "
+            "For non-normally distributed analytes, a Box-Cox transformation "
+            "was applied prior to the biweight algorithm and results were "
+            "back-transformed to the original scale"
+        ),
+        "parametric": (
+            "Reference intervals were determined using the parametric method "
+            "(mean \u00b1 z \u00d7 SD). "
+            "Normality was assessed using the Shapiro-Wilk and "
+            "Anderson-Darling tests. For non-normal distributions, "
+            "a Box-Cox transformation was applied prior to estimation"
+        ),
+    }
+    para = ri_method_map.get(ri_method, ri_method_map["auto"])
+
+    # Sample size
+    if n_min == n_max:
+        para += f". A total of {n_min} animals were sampled"
+    else:
+        para += (f". Sample sizes ranged from {n_min} to {n_max} animals "
+                 "across analytes")
+
+    # Missing values
+    missing_counts = [r.n_missing for r in results]
+    if any(m > 0 for m in missing_counts):
+        para += "; missing values were excluded prior to analysis"
+
+    # Coverage
+    para += (
+        f". The reference interval was defined as the central "
+        f"{ref_conf*100:.0f}% of the reference population"
+    )
+
+    # Outlier detection
+    outlier_map = {
+        "horn": (
+            "Outlier detection was performed using the Horn method "
+            "(Box-Cox transformation followed by Tukey interquartile "
+            "range fences)"
+        ),
+        "tukey": (
+            "Outlier detection was performed using Tukey interquartile "
+            "range fences (1.5 \u00d7 IQR)"
+        ),
+        "dixon": (
+            "Outlier detection was performed using the Dixon-Reed D/R "
+            "ratio test (Dixon, 1953; Reed et al., 1971)"
+        ),
+        "none": "No outlier detection method was applied",
+    }
+    para += ". " + outlier_map.get(outlier_method, outlier_map["horn"])
+    if outlier_method != "none":
+        if remove_outliers:
+            total_outliers = sum(r.n_outliers for r in results)
+            if total_outliers > 0:
+                para += f"; detected outliers (n = {total_outliers} total across all analytes) were removed prior to reference interval estimation"
+            else:
+                para += "; no outliers were detected"
+        else:
+            para += ", but detected outliers were retained in the analysis"
+
+    # Confidence intervals
+    ci_desc_map = {
+        "auto": "automatically matched to the reference interval method",
+        "parametric": "computed using the parametric method",
+        "nonparametric": "computed using the nonparametric rank-based method",
+        "bootstrap": f"computed using the bootstrap method ({n_boot:,} resamples)",
+    }
+    ci_desc = ci_desc_map.get(ci_method, ci_desc_map["auto"])
+    para += (
+        f". {limit_conf*100:.0f}% confidence intervals for the upper and "
+        f"lower reference limits were {ci_desc}"
+    )
+
+    # Partitioning
+    if partition_results and any(pt.test_method for pt in partition_results):
+        pt0 = partition_results[0]
+        part_method_map = {
+            "Harris & Boyd": (
+                "the Harris and Boyd (1990) z* criterion"
+            ),
+            "Welch t-test": "the Welch two-sample t-test",
+            "Mann-Whitney U": "the Mann-Whitney U test",
+            "Permutation (RI limits)": (
+                f"a permutation test on the reference interval limits "
+                f"({n_boot:,} permutations)"
+            ),
+        }
+        part_desc = part_method_map.get(
+            pt0.test_method, pt0.test_method
+        )
+        para += (
+            f". The need for partitioning by {partition_col} was evaluated "
+            f"using {part_desc}"
+        )
+        recommended = [pt for pt in partition_results if pt.partition_recommended]
+        not_recommended = [pt for pt in partition_results if not pt.partition_recommended]
+        if recommended and not_recommended:
+            para += (
+                f". Separate reference intervals were established for "
+                f"{', '.join(pt.analyte for pt in recommended)}, "
+                f"while combined intervals were retained for "
+                f"{', '.join(pt.analyte for pt in not_recommended)}"
+            )
+        elif recommended:
+            para += (
+                ". Partitioning was recommended for all analytes; "
+                "separate reference intervals were established per subgroup"
+            )
+        elif not_recommended:
+            para += (
+                ". Partitioning was not recommended for any analyte; "
+                "combined reference intervals were used"
+            )
+
+    # Software citation
+    para += (
+        ". All analyses were performed using the Reference Interval "
+        "Calculator (Beaufrère and Ammersbach, 2025), a web application "
+        "implementing methods from the ASVCP guidelines (Friedrichs et al., "
+        "2012) and CLSI EP28-A3c standard."
+    )
+
+    return para
+
+
+def _render_publication_table(
+    results: list[ReferenceIntervalResult],
+    limit_conf: float,
+    partition_results: list = None,
+    group_ri_results: dict = None,
+) -> pd.DataFrame:
+    """Build an ASVCP-style publication-ready reference interval table."""
+    rows = []
+
+    # Check if partitioning was performed and any analyte was recommended for partition
+    partitioned_analytes = set()
+    if partition_results:
+        for pt in partition_results:
+            if pt.partition_recommended:
+                partitioned_analytes.add(pt.analyte)
+
+    for r in results:
+        if r.analyte in partitioned_analytes and group_ri_results and r.analyte in group_ri_results:
+            # Show per-group rows instead of combined
+            for label, gr in group_ri_results[r.analyte].items():
+                rows.append({
+                    "Analyte": f"{r.analyte} ({label})",
+                    "n": gr.n_used,
+                    "RI": f"{_fmt(gr.lower_limit, 2)}\u2013{_fmt(gr.upper_limit, 2)}",
+                    f"Lower limit {limit_conf*100:.0f}% CI": (
+                        f"{_fmt(gr.lower_ci_low, 2)}\u2013{_fmt(gr.lower_ci_high, 2)}"
+                    ),
+                    f"Upper limit {limit_conf*100:.0f}% CI": (
+                        f"{_fmt(gr.upper_ci_low, 2)}\u2013{_fmt(gr.upper_ci_high, 2)}"
+                    ),
+                    "Method": gr.method_ri,
+                })
+        else:
+            rows.append({
+                "Analyte": r.analyte,
+                "n": r.n_used,
+                "RI": f"{_fmt(r.lower_limit, 2)}\u2013{_fmt(r.upper_limit, 2)}",
+                f"Lower limit {limit_conf*100:.0f}% CI": (
+                    f"{_fmt(r.lower_ci_low, 2)}\u2013{_fmt(r.lower_ci_high, 2)}"
+                ),
+                f"Upper limit {limit_conf*100:.0f}% CI": (
+                    f"{_fmt(r.upper_ci_low, 2)}\u2013{_fmt(r.upper_ci_high, 2)}"
+                ),
+                "Method": r.method_ri,
+            })
+
+    return pd.DataFrame(rows)
+
+
 def _render_references():
     """Render the references and citations section."""
     st.markdown("---")
@@ -639,6 +860,17 @@ if df is not None:
         st.session_state["ri_partition_results"] = partition_results
         st.session_state["ri_group_results"] = group_ri_results
         st.session_state["ri_partition_col"] = partition_col
+        st.session_state["ri_settings"] = {
+            "ref_conf": ref_conf,
+            "limit_conf": limit_conf,
+            "outlier_method": outlier_method,
+            "remove_outliers": remove_outliers,
+            "ri_method": ri_method,
+            "ci_method": ci_method,
+            "n_boot": n_boot,
+            "partition_test_method": partition_test_method if partition_enabled else None,
+            "partition_col": str(partition_col) if partition_col else None,
+        }
         # Clear any previous interpretation when new results are computed
         st.session_state.pop("ri_interpretation", None)
 
@@ -801,6 +1033,55 @@ if df is not None:
             data=excel_buf,
             file_name="reference_intervals.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        # --------------------------------------------------------------
+        # Publication-ready output
+        # --------------------------------------------------------------
+        st.subheader("Publication-Ready Output")
+
+        stored_settings = st.session_state.get("ri_settings", {})
+
+        # ASVCP-style RI table
+        st.markdown("**Reference Interval Table**")
+        pub_table = _render_publication_table(
+            all_results, stored_limit_conf,
+            partition_results=stored_partition or None,
+            group_ri_results=stored_group_ri or None,
+        )
+        st.dataframe(pub_table, use_container_width=True, hide_index=True)
+
+        # Methods paragraph
+        st.markdown("**Methods Paragraph**")
+        if stored_settings:
+            methods_text = _generate_methods_paragraph(
+                all_results,
+                ref_conf=stored_settings["ref_conf"],
+                limit_conf=stored_settings["limit_conf"],
+                outlier_method=stored_settings["outlier_method"],
+                remove_outliers=stored_settings["remove_outliers"],
+                ri_method=stored_settings["ri_method"],
+                ci_method=stored_settings["ci_method"],
+                n_boot=stored_settings["n_boot"],
+                partition_results=stored_partition or None,
+                partition_test_method=stored_settings.get("partition_test_method"),
+                partition_col=stored_settings.get("partition_col"),
+            )
+        else:
+            methods_text = _generate_methods_paragraph(
+                all_results, ref_conf, limit_conf, outlier_method,
+                remove_outliers, ri_method, ci_method, n_boot,
+                partition_results=stored_partition or None,
+                partition_test_method=partition_test_method
+                    if partition_enabled else None,
+                partition_col=str(partition_col) if partition_col else None,
+            )
+
+        st.text_area(
+            "Copy this paragraph into your article's methods section:",
+            value=methods_text,
+            height=250,
+            help="This paragraph is auto-generated based on your analysis settings.",
         )
 
 # ---------------------------------------------------------------------------
