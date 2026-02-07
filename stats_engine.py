@@ -950,3 +950,230 @@ def calculate_reference_interval(
         result.warnings.append(f"CI computation failed: {e}")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Partitioning tests
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PartitionTestResult:
+    """Result of a partitioning test for a single analyte."""
+    analyte: str
+    partition_variable: str
+    group_labels: list = field(default_factory=list)
+    group_sizes: list = field(default_factory=list)
+    test_method: str = ""
+    test_statistic: float = np.nan
+    p_value: float = np.nan
+    partition_recommended: bool = False
+    details: str = ""
+
+
+def harris_boyd_test(group1, group2, ref_conf=0.95):
+    """Harris & Boyd (1990) partitioning criterion.
+
+    Computes the z* statistic = |mean_1 - mean_2| / s_pooled and compares
+    to a critical value that depends on the standard-deviation ratio *r*.
+    Critical z* values are interpolated from Harris & Boyd Table 1 (for
+    roughly equal subgroup sizes).
+
+    Parameters
+    ----------
+    group1, group2 : array-like
+        Analyte values for each subgroup (NaN-free).
+    ref_conf : float
+        Coverage probability (default 0.95).
+
+    Returns
+    -------
+    z_star : float
+        The z* test statistic.
+    z_crit : float
+        Interpolated critical value.
+    partition : bool
+        True if z* >= z_crit (partition recommended).
+    """
+    g1 = np.asarray(group1, dtype=float)
+    g2 = np.asarray(group2, dtype=float)
+    n1, n2 = len(g1), len(g2)
+    m1, m2 = np.mean(g1), np.mean(g2)
+    s1, s2 = np.std(g1, ddof=1), np.std(g2, ddof=1)
+
+    # Pooled SD
+    s_pooled = np.sqrt(((n1 - 1) * s1 ** 2 + (n2 - 1) * s2 ** 2)
+                       / (n1 + n2 - 2))
+    if s_pooled < 1e-10:
+        return 0.0, 3.0, False
+
+    z_star = abs(m1 - m2) / s_pooled
+
+    # SD ratio (0 < r <= 1)
+    s_max = max(s1, s2)
+    r = min(s1, s2) / s_max if s_max > 1e-10 else 1.0
+
+    # Interpolated critical z* from Harris & Boyd Table 1
+    # (approximate values for balanced subgroups)
+    _r_table = np.array([0.0, 0.25, 0.40, 0.60, 0.75, 0.90, 1.00])
+    _z_table = np.array([6.2, 5.3, 4.7, 3.8, 3.4, 3.1, 3.0])
+    z_crit = float(np.interp(r, _r_table, _z_table))
+
+    return z_star, z_crit, z_star >= z_crit
+
+
+def location_test(group1, group2):
+    """Two-sample location test (t-test or Mann-Whitney U).
+
+    Uses a two-sided Welch's t-test if both groups pass the Shapiro-Wilk
+    normality test (alpha = 0.05); otherwise uses the Mann-Whitney U test.
+
+    Parameters
+    ----------
+    group1, group2 : array-like
+
+    Returns
+    -------
+    statistic : float
+    p_value : float
+    test_name : str
+        "Welch t-test" or "Mann-Whitney U".
+    """
+    g1 = np.asarray(group1, dtype=float)
+    g2 = np.asarray(group2, dtype=float)
+
+    norm1 = check_normality(g1)
+    norm2 = check_normality(g2)
+
+    if norm1["is_normal"] and norm2["is_normal"]:
+        stat, p = stats.ttest_ind(g1, g2, equal_var=False)
+        return float(stat), float(p), "Welch t-test"
+    else:
+        stat, p = stats.mannwhitneyu(g1, g2, alternative="two-sided")
+        return float(stat), float(p), "Mann-Whitney U"
+
+
+def permutation_test_ri(group1, group2, ref_conf=0.95, n_perm=5000,
+                        seed=42):
+    """Permutation test on reference limits.
+
+    Tests whether the reference interval limits differ between groups
+    by permuting group labels and comparing to the observed difference.
+
+    Test statistic: |lower_1 - lower_2| + |upper_1 - upper_2|
+
+    Parameters
+    ----------
+    group1, group2 : array-like
+    ref_conf : float
+    n_perm : int
+    seed : int
+
+    Returns
+    -------
+    observed_diff : float
+        Observed test statistic.
+    p_value : float
+        Proportion of permutations with diff >= observed.
+    """
+    g1 = np.asarray(group1, dtype=float)
+    g2 = np.asarray(group2, dtype=float)
+    n1 = len(g1)
+    combined = np.concatenate([g1, g2])
+
+    # Observed RI difference
+    lo1, hi1 = nonparametric_ri(g1, ref_conf)
+    lo2, hi2 = nonparametric_ri(g2, ref_conf)
+    observed = abs(lo1 - lo2) + abs(hi1 - hi2)
+
+    rng = np.random.RandomState(seed)
+    count = 0
+    for _ in range(n_perm):
+        perm = rng.permutation(combined)
+        p1, p2 = perm[:n1], perm[n1:]
+        plo1, phi1 = nonparametric_ri(p1, ref_conf)
+        plo2, phi2 = nonparametric_ri(p2, ref_conf)
+        if abs(plo1 - plo2) + abs(phi1 - phi2) >= observed:
+            count += 1
+
+    p_value = (count + 1) / (n_perm + 1)
+    return float(observed), float(p_value)
+
+
+def test_partition(group1, group2, analyte_name="analyte",
+                   partition_variable="group", group_labels=None,
+                   method="harris_boyd", ref_conf=0.95, alpha=0.05,
+                   n_perm=5000):
+    """Run a partitioning test for a single analyte.
+
+    Parameters
+    ----------
+    group1, group2 : array-like
+        Analyte values per subgroup (may contain NaN).
+    analyte_name : str
+    partition_variable : str
+    group_labels : list of str or None
+    method : str
+        "harris_boyd", "location", or "permutation".
+    ref_conf : float
+    alpha : float
+        Significance level for the location / permutation tests.
+    n_perm : int
+
+    Returns
+    -------
+    PartitionTestResult
+    """
+    g1 = np.asarray(group1, dtype=float)
+    g2 = np.asarray(group2, dtype=float)
+    g1 = g1[np.isfinite(g1)]
+    g2 = g2[np.isfinite(g2)]
+
+    labels = group_labels or ["Group 1", "Group 2"]
+
+    result = PartitionTestResult(
+        analyte=analyte_name,
+        partition_variable=partition_variable,
+        group_labels=list(labels),
+        group_sizes=[len(g1), len(g2)],
+    )
+
+    if len(g1) < 5 or len(g2) < 5:
+        result.test_method = method
+        result.details = ("Insufficient subgroup size (need >= 5 per group) "
+                          "to perform partitioning test.")
+        return result
+
+    if method == "harris_boyd":
+        z_star, z_crit, partition = harris_boyd_test(g1, g2, ref_conf)
+        result.test_method = "Harris & Boyd"
+        result.test_statistic = z_star
+        result.p_value = np.nan  # H&B uses critical value, not p-value
+        result.partition_recommended = partition
+        result.details = (
+            f"z* = {z_star:.3f}, critical z* = {z_crit:.3f} "
+            f"({'partition' if partition else 'combine'})"
+        )
+
+    elif method == "location":
+        stat, p, test_name = location_test(g1, g2)
+        result.test_method = test_name
+        result.test_statistic = stat
+        result.p_value = p
+        result.partition_recommended = p < alpha
+        result.details = (
+            f"{test_name}: statistic = {stat:.3f}, p = {p:.4f} "
+            f"({'partition' if p < alpha else 'combine'} at alpha={alpha})"
+        )
+
+    elif method == "permutation":
+        obs_diff, p = permutation_test_ri(g1, g2, ref_conf, n_perm)
+        result.test_method = "Permutation (RI limits)"
+        result.test_statistic = obs_diff
+        result.p_value = p
+        result.partition_recommended = p < alpha
+        result.details = (
+            f"Observed RI difference = {obs_diff:.3f}, p = {p:.4f} "
+            f"({'partition' if p < alpha else 'combine'} at alpha={alpha})"
+        )
+
+    return result

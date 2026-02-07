@@ -16,6 +16,11 @@ from stats_engine import (
     bootstrap_ci,
     parametric_ci,
     calculate_reference_interval,
+    harris_boyd_test,
+    location_test,
+    permutation_test_ri,
+    test_partition as run_partition_test,
+    PartitionTestResult,
 )
 
 
@@ -372,3 +377,158 @@ class TestCalculateRI:
         )
         # Should detect non-normality and try Box-Cox
         assert result.is_normal is False or result.boxcox_lambda is not None
+
+
+# ---------------------------------------------------------------------------
+# Partitioning tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def two_groups_different():
+    """Two clearly different normal groups."""
+    rng = np.random.RandomState(42)
+    g1 = rng.normal(loc=100, scale=10, size=60)
+    g2 = rng.normal(loc=130, scale=10, size=60)
+    return g1, g2
+
+
+@pytest.fixture
+def two_groups_similar():
+    """Two nearly identical normal groups."""
+    rng = np.random.RandomState(42)
+    g1 = rng.normal(loc=100, scale=10, size=60)
+    g2 = rng.normal(loc=102, scale=10, size=60)
+    return g1, g2
+
+
+class TestHarrisBoyd:
+    def test_partition_recommended_for_different_groups(self, two_groups_different):
+        g1, g2 = two_groups_different
+        z_star, z_crit, partition = harris_boyd_test(g1, g2)
+        assert z_star > 0
+        assert z_crit > 0
+        assert partition  # Large mean difference should trigger partition
+
+    def test_combine_for_similar_groups(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        z_star, z_crit, partition = harris_boyd_test(g1, g2)
+        assert not partition  # Small mean difference should combine
+
+    def test_zero_variance(self):
+        """Groups with zero variance should return combine."""
+        g1 = np.array([10.0] * 20)
+        g2 = np.array([10.0] * 20)
+        z_star, z_crit, partition = harris_boyd_test(g1, g2)
+        assert z_star == 0.0
+        assert partition is False
+
+    def test_returns_three_values(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        result = harris_boyd_test(g1, g2)
+        assert len(result) == 3
+
+
+class TestLocationTest:
+    def test_detects_difference(self, two_groups_different):
+        g1, g2 = two_groups_different
+        stat, p, test_name = location_test(g1, g2)
+        assert p < 0.05  # Should detect the 30-unit mean difference
+        assert test_name in ("Welch t-test", "Mann-Whitney U")
+
+    def test_no_difference(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        stat, p, test_name = location_test(g1, g2)
+        # p should be higher (may or may not reach 0.05 for 2-unit diff)
+        assert isinstance(p, float)
+        assert 0 <= p <= 1
+
+    def test_skewed_uses_mann_whitney(self):
+        """Non-normal data should trigger Mann-Whitney U."""
+        rng = np.random.RandomState(42)
+        g1 = rng.lognormal(3, 0.8, 60)
+        g2 = rng.lognormal(3, 0.8, 60)
+        stat, p, test_name = location_test(g1, g2)
+        assert test_name == "Mann-Whitney U"
+
+    def test_normal_uses_ttest(self):
+        """Normal data should trigger Welch t-test."""
+        rng = np.random.RandomState(42)
+        g1 = rng.normal(100, 10, 60)
+        g2 = rng.normal(100, 10, 60)
+        stat, p, test_name = location_test(g1, g2)
+        assert test_name == "Welch t-test"
+
+
+class TestPermutationTestRI:
+    def test_detects_difference(self, two_groups_different):
+        g1, g2 = two_groups_different
+        obs_diff, p = permutation_test_ri(g1, g2, n_perm=1000)
+        assert obs_diff > 0
+        assert p < 0.05  # Should detect different RIs
+
+    def test_no_difference(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        obs_diff, p = permutation_test_ri(g1, g2, n_perm=1000)
+        assert p > 0.01  # Similar groups should not differ strongly
+
+    def test_deterministic_with_seed(self, two_groups_different):
+        g1, g2 = two_groups_different
+        _, p1 = permutation_test_ri(g1, g2, n_perm=500, seed=123)
+        _, p2 = permutation_test_ri(g1, g2, n_perm=500, seed=123)
+        assert p1 == p2
+
+    def test_returns_two_values(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        result = permutation_test_ri(g1, g2, n_perm=100)
+        assert len(result) == 2
+
+
+class TestTestPartition:
+    def test_harris_boyd_method(self, two_groups_different):
+        g1, g2 = two_groups_different
+        result = run_partition_test(g1, g2, analyte_name="Chol",
+                                partition_variable="sex",
+                                group_labels=["Male", "Female"],
+                                method="harris_boyd")
+        assert isinstance(result, PartitionTestResult)
+        assert result.analyte == "Chol"
+        assert result.partition_variable == "sex"
+        assert result.test_method == "Harris & Boyd"
+        assert result.group_labels == ["Male", "Female"]
+        assert len(result.group_sizes) == 2
+
+    def test_location_method(self, two_groups_different):
+        g1, g2 = two_groups_different
+        result = run_partition_test(g1, g2, analyte_name="Chol",
+                                method="location")
+        assert result.test_method in ("Welch t-test", "Mann-Whitney U")
+        assert not np.isnan(result.p_value)
+
+    def test_permutation_method(self, two_groups_different):
+        g1, g2 = two_groups_different
+        result = run_partition_test(g1, g2, analyte_name="Chol",
+                                method="permutation", n_perm=200)
+        assert result.test_method == "Permutation (RI limits)"
+        assert not np.isnan(result.p_value)
+
+    def test_insufficient_subgroup_size(self):
+        """Groups smaller than 5 should return early with a warning."""
+        g1 = np.array([1.0, 2.0, 3.0])
+        g2 = np.array([4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+        result = run_partition_test(g1, g2, method="harris_boyd")
+        assert "Insufficient" in result.details
+        assert result.partition_recommended is False
+
+    def test_handles_nan_in_input(self):
+        """NaN values in input should be removed before testing."""
+        rng = np.random.RandomState(42)
+        g1 = np.concatenate([rng.normal(100, 10, 30), [np.nan, np.nan]])
+        g2 = rng.normal(130, 10, 30)
+        result = run_partition_test(g1, g2, method="harris_boyd")
+        assert result.group_sizes[0] == 30  # NaNs stripped
+        assert result.group_sizes[1] == 30
+
+    def test_default_group_labels(self, two_groups_similar):
+        g1, g2 = two_groups_similar
+        result = run_partition_test(g1, g2, method="location")
+        assert result.group_labels == ["Group 1", "Group 2"]

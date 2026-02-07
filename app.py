@@ -20,6 +20,8 @@ from scipy import stats as sp_stats
 from stats_engine import (
     calculate_reference_interval,
     ReferenceIntervalResult,
+    test_partition,
+    PartitionTestResult,
 )
 from interpretation import get_interpretation
 from example_data import get_example_dataframe
@@ -282,9 +284,15 @@ def _render_references():
    *Vet Clin Pathol.* 2019;48(2):335-346.
    doi:[10.1111/vcp.12725](https://doi.org/10.1111/vcp.12725)
 
+**Partitioning:**
+
+9. Harris EK, Boyd JC. On dividing reference data into subgroups to
+   produce separate reference ranges. *Clin Chem.* 1990;36(2):265-270.
+   doi:[10.1093/clinchem/36.2.265](https://doi.org/10.1093/clinchem/36.2.265)
+
 **Software:**
 
-9. Finnegan D. referenceIntervals: Reference Intervals. R package version
+10. Finnegan D. referenceIntervals: Reference Intervals. R package version
    1.3.1. 2024. Available from:
    [https://CRAN.R-project.org/package=referenceIntervals](https://CRAN.R-project.org/package=referenceIntervals).
    *The statistical methods in this application were inspired by and
@@ -381,6 +389,34 @@ n_boot = st.sidebar.number_input(
     help="Number of bootstrap resamples for CI estimation.",
 )
 
+st.sidebar.subheader("Partitioning")
+partition_enabled = st.sidebar.checkbox(
+    "Partition by a categorical variable", value=False,
+    help=(
+        "Test whether subgroups (e.g. sex, age group) require separate "
+        "reference intervals, following Harris & Boyd (1990)."
+    ),
+)
+partition_test_method = st.sidebar.selectbox(
+    "Partitioning test",
+    options=["harris_boyd", "location", "permutation"],
+    index=0,
+    format_func={
+        "harris_boyd": "Harris & Boyd (z* criterion)",
+        "location": "t-test / Mann-Whitney U",
+        "permutation": "Permutation test (RI limits)",
+    }.get,
+    help=(
+        "**Harris & Boyd:** compares z* = |mean difference| / pooled SD to "
+        "a critical value based on the SD ratio (recommended by ASVCP).\n\n"
+        "**t-test / Mann-Whitney U:** Welch t-test if both groups are normal, "
+        "Mann-Whitney U otherwise.\n\n"
+        "**Permutation:** permutes group labels and compares reference limit "
+        "differences (nonparametric, no distributional assumptions)."
+    ),
+    disabled=not partition_enabled,
+)
+
 # Resolve API key from secrets or environment
 _api_key = ""
 try:
@@ -467,15 +503,43 @@ if df is not None:
         st.stop()
 
     non_numeric = [c for c in analyte_cols if c not in numeric_cols]
+    # Identify categorical columns that could be used for partitioning
+    categorical_cols = [
+        c for c in non_numeric
+        if df[c].dropna().nunique() >= 2 and df[c].dropna().nunique() <= 10
+    ]
     if non_numeric:
-        st.warning(
-            f"Skipping non-numeric columns: {', '.join(str(c) for c in non_numeric)}"
-        )
+        skip_cols = [c for c in non_numeric if c not in categorical_cols]
+        if skip_cols:
+            st.warning(
+                f"Skipping non-numeric columns: "
+                f"{', '.join(str(c) for c in skip_cols)}"
+            )
 
-    st.info(
-        f"**{len(df)}** animals | **{len(numeric_cols)}** analytes | "
-        f"ID column: **{id_col}**"
-    )
+    info_parts = [
+        f"**{len(df)}** animals",
+        f"**{len(numeric_cols)}** analytes",
+        f"ID column: **{id_col}**",
+    ]
+    if categorical_cols:
+        info_parts.append(
+            f"Categorical: **{', '.join(str(c) for c in categorical_cols)}**"
+        )
+    st.info(" | ".join(info_parts))
+
+    # Partition column selector (only shown when partitioning is enabled)
+    partition_col = None
+    if partition_enabled and categorical_cols:
+        partition_col = st.selectbox(
+            "Partition variable",
+            options=categorical_cols,
+            help="Select a categorical column to test for partitioning.",
+        )
+    elif partition_enabled and not categorical_cols:
+        st.warning(
+            "Partitioning is enabled but no suitable categorical columns "
+            "were found. Categorical columns should have 2-10 unique values."
+        )
 
     # ------------------------------------------------------------------
     # Select analytes
@@ -496,22 +560,74 @@ if df is not None:
     # ------------------------------------------------------------------
     if st.button("Calculate Reference Intervals", type="primary"):
         all_results: list[ReferenceIntervalResult] = []
+        partition_results: list[PartitionTestResult] = []
+        # Per-group RIs: dict[analyte] -> dict[group_label] -> RIResult
+        group_ri_results: dict = {}
+
+        _ri_kwargs = dict(
+            outlier_method=outlier_method,
+            remove_outliers=remove_outliers,
+            ri_method=ri_method,
+            ci_method=ci_method,
+            ref_conf=ref_conf,
+            limit_conf=limit_conf,
+            n_boot=n_boot,
+        )
 
         progress = st.progress(0)
         for i, col in enumerate(selected):
             values = df[col].values
             result = calculate_reference_interval(
-                values,
-                analyte_name=str(col),
-                outlier_method=outlier_method,
-                remove_outliers=remove_outliers,
-                ri_method=ri_method,
-                ci_method=ci_method,
-                ref_conf=ref_conf,
-                limit_conf=limit_conf,
-                n_boot=n_boot,
+                values, analyte_name=str(col), **_ri_kwargs,
             )
             all_results.append(result)
+
+            # --- Partitioning ---
+            if partition_enabled and partition_col is not None:
+                groups = df[partition_col].dropna().unique()
+                if len(groups) == 2:
+                    g1_mask = df[partition_col] == groups[0]
+                    g2_mask = df[partition_col] == groups[1]
+                    g1_vals = df.loc[g1_mask, col].values
+                    g2_vals = df.loc[g2_mask, col].values
+
+                    pt = test_partition(
+                        g1_vals, g2_vals,
+                        analyte_name=str(col),
+                        partition_variable=str(partition_col),
+                        group_labels=[str(groups[0]), str(groups[1])],
+                        method=partition_test_method,
+                        ref_conf=ref_conf,
+                        n_perm=n_boot,
+                    )
+                    partition_results.append(pt)
+
+                    # Compute per-group RIs
+                    group_ri_results[str(col)] = {}
+                    for label, g_vals in [(str(groups[0]), g1_vals),
+                                          (str(groups[1]), g2_vals)]:
+                        g_result = calculate_reference_interval(
+                            g_vals,
+                            analyte_name=f"{col} ({label})",
+                            **_ri_kwargs,
+                        )
+                        group_ri_results[str(col)][label] = g_result
+                elif len(groups) > 2:
+                    pt = PartitionTestResult(
+                        analyte=str(col),
+                        partition_variable=str(partition_col),
+                        group_labels=[str(g) for g in groups],
+                        group_sizes=[
+                            int((df[partition_col] == g).sum())
+                            for g in groups
+                        ],
+                    )
+                    pt.details = (
+                        "Partitioning tests currently support 2 groups. "
+                        f"Found {len(groups)} groups."
+                    )
+                    partition_results.append(pt)
+
             progress.progress((i + 1) / len(selected))
 
         progress.empty()
@@ -520,6 +636,8 @@ if df is not None:
         st.session_state["ri_results"] = all_results
         st.session_state["ri_limit_conf"] = limit_conf
         st.session_state["ri_remove_outliers"] = remove_outliers
+        st.session_state["ri_partition_results"] = partition_results
+        st.session_state["ri_group_results"] = group_ri_results
         # Clear any previous interpretation when new results are computed
         st.session_state.pop("ri_interpretation", None)
 
@@ -563,6 +681,42 @@ if df is not None:
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
         # --------------------------------------------------------------
+        # Partitioning results
+        # --------------------------------------------------------------
+        stored_partition = st.session_state.get("ri_partition_results", [])
+        stored_group_ri = st.session_state.get("ri_group_results", {})
+
+        if stored_partition:
+            st.subheader("Partitioning Analysis")
+            part_rows = []
+            for pt in stored_partition:
+                row = {
+                    "Analyte": pt.analyte,
+                    "Variable": pt.partition_variable,
+                    "Groups": " vs ".join(pt.group_labels),
+                    "n per group": " / ".join(str(s) for s in pt.group_sizes),
+                    "Test": pt.test_method,
+                    "Statistic": _fmt(pt.test_statistic),
+                    "p-value": (
+                        _fmt(pt.p_value) if not np.isnan(pt.p_value)
+                        else "N/A (criterion)"
+                    ),
+                    "Recommendation": (
+                        "Partition" if pt.partition_recommended
+                        else "Combine"
+                    ),
+                }
+                part_rows.append(row)
+            st.dataframe(
+                pd.DataFrame(part_rows),
+                use_container_width=True, hide_index=True,
+            )
+            for pt in stored_partition:
+                if pt.details:
+                    icon = "\u2714" if pt.partition_recommended else "\u2716"
+                    st.caption(f"{icon} **{pt.analyte}:** {pt.details}")
+
+        # --------------------------------------------------------------
         # Per-analyte detail tabs
         # --------------------------------------------------------------
         st.subheader("Detailed Results")
@@ -571,6 +725,36 @@ if df is not None:
         for tab, r in zip(tabs, all_results):
             with tab:
                 _render_detail(r, df, stored_limit_conf, stored_remove_outliers)
+
+                # Show per-group RIs if partitioning was performed
+                analyte_key = r.analyte
+                if analyte_key in stored_group_ri:
+                    grp_dict = stored_group_ri[analyte_key]
+                    # Find the partition test result for this analyte
+                    pt_match = next(
+                        (pt for pt in stored_partition
+                         if pt.analyte == analyte_key), None
+                    )
+                    if pt_match and pt_match.partition_recommended:
+                        st.markdown("---")
+                        st.markdown(
+                            "**Partitioning recommended** -- "
+                            "separate reference intervals per group:"
+                        )
+                    else:
+                        st.markdown("---")
+                        st.markdown(
+                            "**Partitioning not recommended** -- "
+                            "subgroup RIs shown for comparison:"
+                        )
+                    grp_tabs = st.tabs(list(grp_dict.keys()))
+                    for grp_tab, (label, grp_r) in zip(grp_tabs,
+                                                        grp_dict.items()):
+                        with grp_tab:
+                            _render_detail(
+                                grp_r, df, stored_limit_conf,
+                                stored_remove_outliers,
+                            )
 
         # --------------------------------------------------------------
         # AI Interpretation
@@ -587,6 +771,8 @@ if df is not None:
                     try:
                         interpretation = get_interpretation(
                             all_results, api_key=_api_key,
+                            partition_results=stored_partition or None,
+                            group_ri_results=stored_group_ri or None,
                         )
                         st.session_state["ri_interpretation"] = interpretation
                     except Exception as e:

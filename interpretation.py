@@ -9,7 +9,7 @@ Provides two-section analysis:
 
 import anthropic
 import numpy as np
-from stats_engine import ReferenceIntervalResult
+from stats_engine import ReferenceIntervalResult, PartitionTestResult
 
 
 def _build_results_summary(results: list[ReferenceIntervalResult]) -> str:
@@ -105,10 +105,41 @@ user can see the tables. Focus on clinical insight.\
 """
 
 
+def _build_partition_summary(
+    partition_results: list[PartitionTestResult],
+    group_ri_results: dict,
+) -> str:
+    """Format partition test results into a text block for the prompt."""
+    if not partition_results:
+        return ""
+    lines = ["\n--- Partitioning Analysis ---\n"]
+    for pt in partition_results:
+        lines.append(f"Analyte: {pt.analyte}")
+        lines.append(f"  Partition variable: {pt.partition_variable}")
+        lines.append(f"  Groups: {' vs '.join(pt.group_labels)} "
+                      f"(n = {', '.join(str(s) for s in pt.group_sizes)})")
+        lines.append(f"  Test: {pt.test_method}")
+        lines.append(f"  Details: {pt.details}")
+        lines.append(f"  Recommendation: "
+                      f"{'Partition' if pt.partition_recommended else 'Combine'}")
+        # Include per-group RIs if available
+        if pt.analyte in group_ri_results:
+            for label, gr in group_ri_results[pt.analyte].items():
+                lines.append(
+                    f"  Group '{label}': RI = {gr.lower_limit:.4f} -- "
+                    f"{gr.upper_limit:.4f} (n={gr.n_used}, "
+                    f"method={gr.method_ri})"
+                )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def get_interpretation(
     results: list[ReferenceIntervalResult],
     api_key: str,
     model: str = "claude-sonnet-4-5-20250929",
+    partition_results: list[PartitionTestResult] | None = None,
+    group_ri_results: dict | None = None,
 ) -> str:
     """Call the Claude API to interpret reference interval results.
 
@@ -120,6 +151,10 @@ def get_interpretation(
         Anthropic API key.
     model : str
         Claude model to use.
+    partition_results : list[PartitionTestResult] or None
+        Partitioning test results, if any.
+    group_ri_results : dict or None
+        Per-group RIs: {analyte: {group_label: RIResult}}.
 
     Returns
     -------
@@ -128,6 +163,11 @@ def get_interpretation(
     """
     client = anthropic.Anthropic(api_key=api_key)
     summary = _build_results_summary(results)
+
+    if partition_results:
+        summary += _build_partition_summary(
+            partition_results, group_ri_results or {},
+        )
 
     message = client.messages.create(
         model=model,
