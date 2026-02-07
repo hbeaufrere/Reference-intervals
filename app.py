@@ -522,6 +522,12 @@ def _render_references():
 # Sidebar - settings
 # ---------------------------------------------------------------------------
 
+# Logo at the top of the sidebar (place a logo.png in the project root)
+import pathlib as _pathlib
+_logo_path = _pathlib.Path(__file__).parent / "logo.png"
+if _logo_path.exists():
+    st.sidebar.image(str(_logo_path), use_container_width=True)
+
 st.sidebar.title("Settings")
 
 st.sidebar.subheader("Reference Interval")
