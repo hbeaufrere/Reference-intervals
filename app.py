@@ -392,6 +392,7 @@ st.markdown(
     "<h1 style='text-align: center;'>Reference Interval Calculator</h1>"
     "<p style='text-align: center; font-size: 0.9em; margin-top: -10px;'>"
     "Hugues Beaufrère, DVM, PhD, DACZM<br>"
+    "Mélanie Ammersbach, DVM, DACVP<br>"
     "UC Davis \u2013 Weill School of Veterinary Medicine</p>",
     unsafe_allow_html=True,
 )
