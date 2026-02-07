@@ -29,8 +29,9 @@ class ReferenceIntervalResult:
     """Result of a reference interval calculation for a single analyte."""
     analyte: str
     n_total: int
-    n_outliers: int
-    n_used: int
+    n_missing: int = 0
+    n_outliers: int = 0
+    n_used: int = 0
     outlier_values: list = field(default_factory=list)
     outlier_indices: list = field(default_factory=list)
     method_ri: str = ""
@@ -470,7 +471,8 @@ def _biweight(data, ref_conf=0.95, max_iter=50, tol=1e-6):
     return lower, upper, t_bi, s_bi
 
 
-def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
+def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True,
+              fixed_boxcox=None):
     """Compute robust reference interval using the CLSI biweight method.
 
     Implements the iterative Tukey biweight algorithm from CLSI C28-A3
@@ -494,6 +496,10 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
         If True, apply Box-Cox before biweight for non-normal data
         (Horn 1998 "transformed robust").  If False, always use the
         plain CLSI C28-A3 biweight on native data.
+    fixed_boxcox : tuple(float, float) or None
+        If provided as (lmbda, shift), skip normality testing and use
+        these pre-estimated Box-Cox parameters directly.  Used by
+        bootstrap to avoid re-estimating lambda on every resample.
 
     Returns
     -------
@@ -512,7 +518,26 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
     lmbda = None
     shift = 0.0
 
-    if transform:
+    if fixed_boxcox is not None:
+        # Use pre-estimated Box-Cox parameters (bootstrap fast path)
+        lmbda, shift = fixed_boxcox
+        try:
+            if shift > 0:
+                transformed = stats.boxcox(data + shift, lmbda=lmbda)
+            else:
+                transformed = stats.boxcox(data, lmbda=lmbda)
+            lower_t, upper_t, t_bi_t, s_bi_t = _biweight(
+                transformed, ref_conf, max_iter, tol,
+            )
+            lower = boxcox_inverse(lower_t, lmbda, shift)
+            upper = boxcox_inverse(upper_t, lmbda, shift)
+            t_bi = boxcox_inverse(t_bi_t, lmbda, shift)
+            s_bi = s_bi_t
+            used_transform = True
+        except Exception:
+            pass  # fall through to plain biweight
+
+    elif transform:
         # Only transform when data appear non-normal (skewed)
         norm = check_normality(data, alpha=0.05)
         if not norm["is_normal"]:
@@ -532,6 +557,7 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
 
     if not used_transform:
         lower, upper, t_bi, s_bi = _biweight(data, ref_conf, max_iter, tol)
+        lmbda = None
 
     return lower, upper, t_bi, s_bi, lmbda
 
@@ -541,7 +567,8 @@ def robust_ri(data, ref_conf=0.95, max_iter=50, tol=1e-6, transform=True):
 # ---------------------------------------------------------------------------
 
 def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
-                 n_boot=5000, seed=42, robust_transform=True):
+                 n_boot=5000, seed=42, robust_transform=True,
+                 robust_boxcox_params=None):
     """Compute bootstrap confidence intervals for reference limits.
 
     Parameters
@@ -555,8 +582,10 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
     seed : int
     robust_transform : bool
         When method="robust", whether to apply Box-Cox transformation
-        before the biweight in each bootstrap resample.  Should match
-        the transform setting used for the point estimate.
+        before the biweight in each bootstrap resample.
+    robust_boxcox_params : tuple(float, float) or None
+        Pre-estimated (lmbda, shift) from the full dataset.  Reused
+        across all bootstrap resamples for speed and consistency.
 
     Returns
     -------
@@ -575,8 +604,15 @@ def bootstrap_ci(data, method="nonparametric", ref_conf=0.95, limit_conf=0.90,
         elif method == "parametric":
             lo, hi = parametric_ri(sample, ref_conf)
         elif method == "robust":
-            lo, hi, _, _, _ = robust_ri(sample, ref_conf,
-                                        transform=robust_transform)
+            if robust_transform and robust_boxcox_params is not None:
+                lo, hi, _, _, _ = robust_ri(
+                    sample, ref_conf,
+                    fixed_boxcox=robust_boxcox_params,
+                )
+            else:
+                lo, hi, _, _, _ = robust_ri(
+                    sample, ref_conf, transform=False,
+                )
         else:
             lo, hi = nonparametric_ri(sample, ref_conf)
         boot_lower[i] = lo
@@ -717,11 +753,13 @@ def calculate_reference_interval(
     # Remove NaN/Inf
     valid_mask = np.isfinite(raw)
     clean = raw[valid_mask]
+    n_missing = int(len(raw) - len(clean))
     n_total = len(clean)
 
     result = ReferenceIntervalResult(
         analyte=analyte_name,
         n_total=n_total,
+        n_missing=n_missing,
         n_outliers=0,
         n_used=n_total,
         ref_conf=ref_conf,
@@ -844,8 +882,14 @@ def calculate_reference_interval(
                 result.method_ri = "Parametric (Gaussian assumed)"
     elif chosen_ri == "robust":
         lower, upper, t_bi, s_bi, bc_lmbda = robust_ri(analysis_data, ref_conf)
+        _robust_boxcox_params = None
         if bc_lmbda is not None:
             result.boxcox_lambda = float(bc_lmbda)
+            # Recover the shift that boxcox_transform would have used
+            _bc_shift = 0.0
+            if np.any(analysis_data <= 0):
+                _bc_shift = np.abs(analysis_data.min()) + 1.0
+            _robust_boxcox_params = (bc_lmbda, _bc_shift)
             result.method_ri = (
                 f"Robust transformed (Box-Cox lambda={bc_lmbda:.3f} + "
                 f"CLSI biweight)"
@@ -862,6 +906,8 @@ def calculate_reference_interval(
     # Track whether robust used Box-Cox so bootstrap CI matches
     _robust_used_transform = (chosen_ri == "robust"
                               and result.boxcox_lambda is not None)
+    if chosen_ri != "robust":
+        _robust_boxcox_params = None
 
     # --- Compute confidence intervals ---
     if ci_method == "auto":
@@ -892,6 +938,7 @@ def calculate_reference_interval(
                 analysis_data, method=chosen_ri, ref_conf=ref_conf,
                 limit_conf=limit_conf, n_boot=n_boot,
                 robust_transform=_robust_used_transform,
+                robust_boxcox_params=_robust_boxcox_params,
             )
             result.method_ci = f"Bootstrap (n={n_boot})"
 

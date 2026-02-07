@@ -55,10 +55,12 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
     with col1:
         st.markdown("**Descriptive Statistics**")
         stats_data = {
-            "Statistic": ["n (total)", "n (used)", "Outliers removed",
+            "Statistic": ["n (total)", "Missing values", "n (used)",
+                          "Outliers removed",
                           "Mean", "Median", "SD", "Min", "Max"],
             "Value": [
-                str(r.n_total), str(r.n_used), str(r.n_outliers),
+                str(r.n_total), str(r.n_missing), str(r.n_used),
+                str(r.n_outliers),
                 _fmt(r.mean), _fmt(r.median), _fmt(r.std),
                 _fmt(r.min_val), _fmt(r.max_val),
             ],
@@ -201,6 +203,7 @@ def _results_to_excel(results, summary_df, limit_conf):
             detail_rows.append({
                 "Analyte": r.analyte,
                 "n_total": r.n_total,
+                "n_missing": r.n_missing,
                 "n_outliers": r.n_outliers,
                 "n_used": r.n_used,
                 "Mean": r.mean,
@@ -523,6 +526,7 @@ if uploaded_file is not None:
             summary_rows.append({
                 "Analyte": r.analyte,
                 "n": r.n_used,
+                "Missing": r.n_missing,
                 "Outliers": r.n_outliers,
                 "Method": r.method_ri,
                 "Lower RI": _fmt(r.lower_limit),

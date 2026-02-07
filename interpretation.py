@@ -17,8 +17,8 @@ def _build_results_summary(results: list[ReferenceIntervalResult]) -> str:
     lines = []
     for r in results:
         lines.append(f"Analyte: {r.analyte}")
-        lines.append(f"  Sample size: n_total={r.n_total}, n_used={r.n_used}, "
-                      f"outliers_removed={r.n_outliers}")
+        lines.append(f"  Sample size: n_total={r.n_total}, n_missing={r.n_missing}, "
+                      f"n_used={r.n_used}, outliers_removed={r.n_outliers}")
         lines.append(f"  Descriptive: mean={r.mean:.4f}, median={r.median:.4f}, "
                       f"SD={r.std:.4f}, min={r.min_val:.4f}, max={r.max_val:.4f}")
         lines.append(f"  Normality: Shapiro-Wilk p={r.shapiro_p:.4f}, "

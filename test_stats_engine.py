@@ -230,13 +230,18 @@ class TestBootstrapCI:
         assert len(ci) == 4
 
     def test_bootstrap_robust_transformed_ci_contains_ri(self):
-        """Bootstrap CI with transform=True should contain the RI limits."""
+        """Bootstrap CI with fixed Box-Cox params should contain the RI limits."""
         rng = np.random.RandomState(42)
         skewed = rng.chisquare(df=3, size=80)
         lower, upper, _, _, bc_lmbda = robust_ri(skewed, transform=True)
         assert bc_lmbda is not None, "Expected Box-Cox to be applied"
+        # Recover the shift (same logic as calculate_reference_interval)
+        bc_shift = 0.0
+        if np.any(skewed <= 0):
+            bc_shift = np.abs(skewed.min()) + 1.0
         ci = bootstrap_ci(skewed, method="robust", n_boot=2000,
-                          robust_transform=True)
+                          robust_transform=True,
+                          robust_boxcox_params=(bc_lmbda, bc_shift))
         # The 90% CI should contain the point estimate
         assert ci[0] <= lower <= ci[1], (
             f"Lower RI {lower:.4f} not in CI [{ci[0]:.4f}, {ci[1]:.4f}]"
