@@ -1,12 +1,8 @@
 """
 Built-in example dataset for the Reference Interval Calculator.
 
-Contains triglyceride and cholesterol values (mg/dL) from 80 mixed-sex
-cockatiels (Nymphicus hollandicus).  A few values are intentionally
-missing to demonstrate how the tool handles incomplete data.
-
-These are simulated data generated to be realistic for the species based
-on published psittacine lipid reference ranges.
+Contains cholesterol and triglyceride values (mg/dL) from mixed-sex
+cockatiels (Nymphicus hollandicus).
 """
 
 import numpy as np
@@ -19,34 +15,85 @@ def get_example_dataframe() -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        80 rows, columns: Bird_ID, Triglycerides_mg_dL, Cholesterol_mg_dL.
-        Contains a small number of intentional missing values (NaN).
+        Columns: Cockatiels, Cholesterol (mg/dL), Triglycerides (mg/dL).
+        Contains missing values (NaN) where data were not available.
     """
-    rng = np.random.RandomState(2024)
-    n = 80
+    _NaN = np.nan
 
-    ids = [f"CKT-{i+1:03d}" for i in range(n)]
+    data = [
+        ("18-02", 197.7, 106),
+        ("18-14", 263.5, 149),
+        ("14-39", 241.6, 168),
+        ("14-32", 206.9, 166),
+        ("15-06", _NaN, 89),
+        ("18-43", 306.5, 272),
+        ("18-17", 296.6, 131),
+        ("18-08", 156.9, 545),
+        ("15-12", 266.4, _NaN),
+        ("18-09", 270.4, 43),
+        ("18-07", 192.7, _NaN),
+        ("14-09", 241.1, 129),
+        ("14-12", 237.5, 156),
+        ("18-16", 265.0, 63),
+        ("18-16", 310.9, _NaN),
+        ("18-32", 234.7, 99),
+        ("18-24", 278.8, _NaN),
+        ("16-48", 277.2, 141),
+        ("16-17", 240.0, _NaN),
+        ("16-50", 306.5, 147),
+        ("18-05", 234.8, 562),
+        ("18-03", 380.7, 118),
+        ("14-30", 332.4, 366),
+        ("18-13", 195.8, _NaN),
+        ("16-40", 249.8, 92),
+        ("18-19", 226.1, 150),
+        ("14-08", 427.9, 196),
+        ("13-37", 245.4, 72),
+        ("21-01", 235.2, 95),
+        ("21-42", _NaN, _NaN),
+        ("16-32", 1303.6, 845),
+        ("18-35", 283.6, 153),
+        ("18-42", 298.2, 202),
+        ("15-05", 287.8, 115),
+        ("15-28", 348.3, 162),
+        ("13-04", 238.1, 118),
+        ("21-01", _NaN, 96),
+        ("21-41", 415.0, 282),
+        ("15-02", 195.0, 105),
+        ("18-31", 607.2, 459),
+        ("18-41", 264.9, 98),
+        ("13-31", 270.0, 121),
+        ("13-12", 184.2, 561),
+        ("21-32", 247.1, 144),
+        ("16-09", 235.6, _NaN),
+        ("14-03", 405.7, 277),
+        ("14-26", 223.5, 166),
+        ("18-11", 296.2, 97),
+        ("11-02", 253.7, 81),
+        ("16-42", 237.1, 102),
+        ("16-44", 190.6, _NaN),
+        ("21-24", 233.6, 110),
+        ("18-15", 426.8, 243),
+        ("16-18", 247.5, 115),
+        ("13-30", 300.1, 133),
+        ("14-35", 3261.4, 129),
+        ("13-25", 270.4, _NaN),
+        ("13-08", 198.2, 127),
+        ("16-21", 316.3, _NaN),
+        ("14-14", 320.7, 159),
+        ("13-42", 255.0, _NaN),
+        ("15-34", 256.4, 185),
+        ("05-05", 452.6, _NaN),
+        ("15-05", 244.5, 175),
+    ]
 
-    # Triglycerides: right-skewed (gamma), mean ~85 mg/dL, range ~35-200
-    trig = rng.gamma(shape=4.5, scale=19.0, size=n)
-    trig = np.round(trig, 1)
-
-    # Cholesterol: roughly normal, mean ~210 mg/dL, SD ~28
-    chol = rng.normal(loc=210, scale=28, size=n)
-    chol = np.round(chol, 1)
-
-    # Introduce a few missing values (3 in triglycerides, 2 in cholesterol)
-    trig_float = trig.astype(float)
-    chol_float = chol.astype(float)
-
-    missing_trig = rng.choice(n, size=3, replace=False)
-    missing_chol = rng.choice(n, size=2, replace=False)
-    trig_float[missing_trig] = np.nan
-    chol_float[missing_chol] = np.nan
+    ids = [r[0] for r in data]
+    chol = [r[1] for r in data]
+    trig = [r[2] for r in data]
 
     df = pd.DataFrame({
-        "Bird_ID": ids,
-        "Triglycerides_mg_dL": trig_float,
-        "Cholesterol_mg_dL": chol_float,
+        "Cockatiels": ids,
+        "Cholesterol (mg/dL)": chol,
+        "Triglycerides (mg/dL)": trig,
     })
     return df

@@ -446,9 +446,8 @@ if uploaded_file is not None:
 elif st.session_state.get("use_example"):
     df = get_example_dataframe()
     st.caption(
-        "Example dataset: triglycerides and cholesterol (mg/dL) "
-        "from 80 mixed-sex cockatiels (*Nymphicus hollandicus*). "
-        "Simulated data based on published psittacine lipid ranges."
+        "Example dataset: cholesterol and triglycerides (mg/dL) "
+        "from mixed-sex cockatiels (*Nymphicus hollandicus*)."
     )
 
 if df is not None:
