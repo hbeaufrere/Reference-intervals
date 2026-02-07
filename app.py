@@ -489,7 +489,7 @@ elif st.session_state.get("use_example"):
 if df is not None:
 
     st.subheader("Data Preview")
-    st.dataframe(df.head(20), use_container_width=True)
+    st.dataframe(df, use_container_width=True)
 
     id_col = df.columns[0]
     analyte_cols = df.columns[1:]
@@ -527,18 +527,17 @@ if df is not None:
         )
     st.info(" | ".join(info_parts))
 
-    # Partition column selector (only shown when partitioning is enabled)
+    # Partition column selector (in sidebar, after data is loaded)
     partition_col = None
     if partition_enabled and categorical_cols:
-        partition_col = st.selectbox(
+        partition_col = st.sidebar.selectbox(
             "Partition variable",
             options=categorical_cols,
             help="Select a categorical column to test for partitioning.",
         )
     elif partition_enabled and not categorical_cols:
-        st.warning(
-            "Partitioning is enabled but no suitable categorical columns "
-            "were found. Categorical columns should have 2-10 unique values."
+        st.sidebar.warning(
+            "No suitable categorical columns found (need 2-10 unique values)."
         )
 
     # ------------------------------------------------------------------
