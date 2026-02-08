@@ -1096,6 +1096,12 @@ if df is not None:
             if "ri_interpretation" in st.session_state and st.session_state["ri_interpretation"]:
                 st.markdown(st.session_state["ri_interpretation"])
 
+        st.warning(
+            "**Disclaimer:** AI-generated interpretations may be inaccurate. "
+            "Use professional judgment and verify recommendations before "
+            "implementing any suggested changes."
+        )
+
         # --------------------------------------------------------------
         # Publication-ready output & download
         # --------------------------------------------------------------
