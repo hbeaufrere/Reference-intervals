@@ -222,6 +222,7 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
             )
 
     # --- Plots (Plotly interactive) ---
+    st.markdown("**Plots**")
     col_name = df_col or r.analyte
     all_values = df[col_name].dropna().values
 
@@ -250,7 +251,7 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
     )
 
     # Histogram – at least 40 bins with fitted distribution curve
-    _nbins = max(40, int(np.sqrt(len(plot_values)) * 2))
+    _nbins = max(25, int(np.sqrt(len(plot_values)) * 2))
     _bin_size = (plot_values.max() - plot_values.min()) / _nbins
     fig.add_trace(
         go.Histogram(
