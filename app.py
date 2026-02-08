@@ -249,11 +249,14 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
         horizontal_spacing=0.08,
     )
 
-    # Histogram
+    # Histogram – at least 40 bins with fitted distribution curve
+    _nbins = max(40, int(np.sqrt(len(plot_values)) * 2))
+    _bin_size = (plot_values.max() - plot_values.min()) / _nbins
     fig.add_trace(
         go.Histogram(
             x=plot_values, name="Used data",
-            marker_color="#4a90d9", opacity=0.8,
+            marker_color="#4a90d9", opacity=0.75,
+            xbins=dict(size=_bin_size),
             showlegend=True,
         ),
         row=1, col=1,
@@ -264,7 +267,23 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
                 x=outlier_vals,
                 name=f"Outliers removed ({len(outlier_vals)})",
                 marker_color="#f59e0b", opacity=0.6,
+                xbins=dict(size=_bin_size),
                 showlegend=True,
+            ),
+            row=1, col=1,
+        )
+    # Superimpose a fitted normal (or KDE) curve
+    _xgrid = np.linspace(plot_values.min(), plot_values.max(), 200)
+    _mu, _sigma = plot_values.mean(), plot_values.std(ddof=1)
+    if _sigma > 0:
+        _pdf = sp_stats.norm.pdf(_xgrid, _mu, _sigma)
+        # Scale PDF to match histogram counts: area = n * bin_size
+        _pdf_scaled = _pdf * len(plot_values) * _bin_size
+        fig.add_trace(
+            go.Scatter(
+                x=_xgrid, y=_pdf_scaled, mode="lines",
+                line=dict(color="#1e40af", width=2.5),
+                name="Normal fit", showlegend=True,
             ),
             row=1, col=1,
         )
