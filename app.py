@@ -206,15 +206,15 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
     ax.hist(plot_values, bins="auto", color="#4a90d9", edgecolor="white",
             alpha=0.8, label="Used data")
     if outliers_removed and len(outlier_vals) > 0:
-        ax.hist(outlier_vals, bins="auto", color="#e67e22", edgecolor="white",
+        ax.hist(outlier_vals, bins="auto", color="#f59e0b", edgecolor="white",
                 alpha=0.6, label=f"Outliers removed ({len(outlier_vals)})")
-    ax.axvline(r.lower_limit, color="#e74c3c", linestyle="--", linewidth=1.5,
+    ax.axvline(r.lower_limit, color="#2563eb", linestyle="--", linewidth=1.5,
                label=f"Lower RI ({_fmt(r.lower_limit, 2)})")
-    ax.axvline(r.upper_limit, color="#e74c3c", linestyle="--", linewidth=1.5,
+    ax.axvline(r.upper_limit, color="#2563eb", linestyle="--", linewidth=1.5,
                label=f"Upper RI ({_fmt(r.upper_limit, 2)})")
     if not np.isnan(r.lower_ci_low):
-        ax.axvspan(r.lower_ci_low, r.lower_ci_high, alpha=0.15, color="#e74c3c")
-        ax.axvspan(r.upper_ci_low, r.upper_ci_high, alpha=0.15, color="#e74c3c")
+        ax.axvspan(r.lower_ci_low, r.lower_ci_high, alpha=0.15, color="#2563eb")
+        ax.axvspan(r.upper_ci_low, r.upper_ci_high, alpha=0.15, color="#2563eb")
     ax.set_xlabel(r.analyte)
     ax.set_ylabel("Frequency")
     ax.set_title("Histogram" + (" (outliers removed)" if outliers_removed else ""))
@@ -224,11 +224,11 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
     ax = axes[1]
     ax.boxplot(plot_values, vert=True, patch_artist=True,
                boxprops=dict(facecolor="#4a90d9", alpha=0.6),
-               medianprops=dict(color="#e74c3c", linewidth=2))
+               medianprops=dict(color="#2563eb", linewidth=2))
     if outliers_removed and len(outlier_vals) > 0:
         ax.scatter(
             [1] * len(outlier_vals), outlier_vals,
-            color="#e67e22", zorder=5, s=40, marker="x", linewidths=2,
+            color="#f59e0b", zorder=5, s=40, marker="x", linewidths=2,
             label=f"Outliers removed ({len(outlier_vals)})",
         )
         ax.legend(fontsize=7)
@@ -242,7 +242,7 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
         plot_values, dist="norm")
     ax.scatter(osm, osr, s=15, color="#4a90d9", alpha=0.7)
     line_x = np.array([osm.min(), osm.max()])
-    ax.plot(line_x, slope * line_x + intercept, color="#e74c3c", linewidth=1.5)
+    ax.plot(line_x, slope * line_x + intercept, color="#2563eb", linewidth=1.5)
     ax.set_xlabel("Theoretical Quantiles")
     ax.set_ylabel("Sample Quantiles")
     ax.set_title("Q-Q Plot" + (" (outliers removed)" if outliers_removed else ""))
@@ -580,10 +580,15 @@ def _render_references():
 # Sidebar - settings
 # ---------------------------------------------------------------------------
 
-# Logo at the top of the sidebar (place a logo.png in the project root)
+# Logo at the top of the sidebar
 import pathlib as _pathlib
-_logo_path = _pathlib.Path(__file__).parent / "logo.png"
-if _logo_path.exists():
+_logo_path = None
+for _candidate in ("logo.png", "image.png"):
+    _p = _pathlib.Path(__file__).parent / _candidate
+    if _p.exists():
+        _logo_path = _p
+        break
+if _logo_path:
     st.sidebar.image(str(_logo_path), use_container_width=True)
 
 st.sidebar.title("Settings")
@@ -709,6 +714,10 @@ except (KeyError, FileNotFoundError):
 # Main content
 # ---------------------------------------------------------------------------
 
+if _logo_path:
+    _logo_col1, _logo_col2, _logo_col3 = st.columns([1, 2, 1])
+    with _logo_col2:
+        st.image(str(_logo_path), use_container_width=True)
 st.markdown(
     "<h1 style='text-align: center;'>Reference Interval Calculator</h1>"
     "<p style='text-align: center; font-size: 0.9em; margin-top: -10px;'>"
