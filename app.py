@@ -582,12 +582,9 @@ def _render_references():
 
 # Logo at the top of the sidebar
 import pathlib as _pathlib
-_logo_path = None
-for _candidate in ("logo.png", "image.png"):
-    _p = _pathlib.Path(__file__).parent / _candidate
-    if _p.exists():
-        _logo_path = _p
-        break
+_logo_path = _pathlib.Path(__file__).parent / "logo.png"
+if not _logo_path.exists():
+    _logo_path = None
 if _logo_path:
     st.sidebar.image(str(_logo_path), use_container_width=True)
 
