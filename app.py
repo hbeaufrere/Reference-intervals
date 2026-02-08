@@ -516,10 +516,9 @@ def _render_publication_table(
 
 def _render_references():
     """Render the references and citations section."""
-    st.markdown("---")
+    st.header("F. References & Citations")
     st.markdown(
         """
-### References & Citations
 
 **Guidelines:**
 
@@ -733,7 +732,7 @@ st.markdown(
 # File upload
 # ---------------------------------------------------------------------------
 
-st.header("1. Upload Data")
+st.header("A. Upload Data")
 st.markdown(
     "Upload an Excel file (`.xlsx` / `.xls`). The first column should contain "
     "**animal IDs** and subsequent columns should contain the **analyte values**. "
@@ -832,7 +831,7 @@ if df is not None:
     # ------------------------------------------------------------------
     # Select analytes
     # ------------------------------------------------------------------
-    st.header("2. Select Analytes")
+    st.header("B. Select Analytes")
     selected = st.multiselect(
         "Choose analytes to analyse",
         options=numeric_cols,
@@ -949,7 +948,7 @@ if df is not None:
         stored_limit_conf = st.session_state["ri_limit_conf"]
         stored_remove_outliers = st.session_state["ri_remove_outliers"]
 
-        st.header("3. Results")
+        st.header("C. Results")
 
         # --------------------------------------------------------------
         # Summary table
@@ -1073,7 +1072,7 @@ if df is not None:
         # --------------------------------------------------------------
         # AI Interpretation
         # --------------------------------------------------------------
-        st.subheader("AI Interpretation (powered by Claude)")
+        st.header("D. AI Interpretation (powered by Claude)")
         if not _api_key:
             st.info(
                 "Set ANTHROPIC_API_KEY in Streamlit secrets or as an "
@@ -1098,9 +1097,10 @@ if df is not None:
                 st.markdown(st.session_state["ri_interpretation"])
 
         # --------------------------------------------------------------
-        # Download results
+        # Publication-ready output & download
         # --------------------------------------------------------------
-        st.subheader("Download Results")
+        st.header("E. Publication-Ready Output")
+
         excel_buf = _results_to_excel(all_results, summary_df, stored_limit_conf)
         st.download_button(
             label="Download Results as Excel",
@@ -1108,11 +1108,6 @@ if df is not None:
             file_name="reference_intervals.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-        # --------------------------------------------------------------
-        # Publication-ready output
-        # --------------------------------------------------------------
-        st.subheader("Publication-Ready Output")
 
         stored_settings = st.session_state.get("ri_settings", {})
 
