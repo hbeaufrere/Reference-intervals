@@ -12,9 +12,11 @@ Usage
 
 import io
 import os
+import html as html_module
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import matplotlib.pyplot as plt
 from scipy import stats as sp_stats
 from stats_engine import (
@@ -36,10 +38,66 @@ st.set_page_config(
     layout="wide",
 )
 
+# Blue accent for action buttons and interactive elements
+st.markdown(
+    """
+    <style>
+    .stButton > button[kind="primary"] {
+        background-color: #2563eb;
+        border-color: #2563eb;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #1d4ed8;
+        border-color: #1d4ed8;
+    }
+    .stButton > button[kind="secondary"] {
+        color: #2563eb;
+        border-color: #2563eb;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        color: #1d4ed8;
+        border-color: #1d4ed8;
+    }
+    .stDownloadButton > button {
+        color: #2563eb;
+        border-color: #2563eb;
+    }
+    .stDownloadButton > button:hover {
+        color: #1d4ed8;
+        border-color: #1d4ed8;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+def _copy_button(text: str, label: str = "Copy to clipboard"):
+    """Render a styled HTML button that copies *text* to the clipboard."""
+    escaped = html_module.escape(text).replace("\n", "\\n").replace("'", "\\'")
+    components.html(
+        f"""
+        <button onclick="
+            navigator.clipboard.writeText('{escaped}');
+            this.innerText = 'Copied!';
+            setTimeout(() => this.innerText = '{label}', 2000);
+        " style="
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 0.5em 1.2em;
+            border-radius: 0.4em;
+            font-size: 0.95em;
+            cursor: pointer;
+        ">{label}</button>
+        """,
+        height=50,
+    )
+
 
 def _fmt(val, decimals=4):
     """Format a numeric value for display."""
@@ -949,8 +1007,15 @@ if df is not None:
             )
             for pt in stored_partition:
                 if pt.details:
-                    icon = "\u2714" if pt.partition_recommended else "\u2716"
-                    st.caption(f"{icon} **{pt.analyte}:** {pt.details}")
+                    if pt.partition_recommended:
+                        icon_html = '<span style="color: #2563eb;">\u2714</span>'
+                    else:
+                        icon_html = '<span style="color: #2563eb;">\u2716</span>'
+                    st.markdown(
+                        f'<small>{icon_html} <b>{pt.analyte}:</b> '
+                        f'{pt.details}</small>',
+                        unsafe_allow_html=True,
+                    )
 
         # --------------------------------------------------------------
         # Per-analyte detail tabs
@@ -1054,16 +1119,10 @@ if df is not None:
         )
         st.dataframe(pub_table, use_container_width=True, hide_index=True)
 
-        # Copy button for the table (tab-separated for Word/Excel)
+        # Copy table to clipboard (tab-separated for Word/Excel)
         tsv_text = pub_table.to_csv(sep="\t", index=False)
-        st.download_button(
-            label="Copy table to clipboard (TSV)",
-            data=tsv_text,
-            file_name="reference_interval_table.tsv",
-            mime="text/tab-separated-values",
-            help="Download as tab-separated file \u2014 paste into Word, "
-                 "Excel, or Google Docs.",
-        )
+        _copy_button(tsv_text, "Copy table to clipboard")
+        st.caption("Copies as tab-separated text \u2014 paste into Word, Excel, or Google Docs.")
 
         # Methods paragraph
         st.markdown("**Methods Paragraph**")
@@ -1096,13 +1155,8 @@ if df is not None:
             f'border-radius: 0.5em; line-height: 1.6;">{methods_text}</div>',
             unsafe_allow_html=True,
         )
-        st.download_button(
-            label="Copy methods paragraph (TXT)",
-            data=methods_text,
-            file_name="methods_paragraph.txt",
-            mime="text/plain",
-            help="Download the methods paragraph as a text file.",
-        )
+        st.markdown("")  # spacing
+        _copy_button(methods_text, "Copy methods paragraph")
 
 # ---------------------------------------------------------------------------
 # References (always visible)
