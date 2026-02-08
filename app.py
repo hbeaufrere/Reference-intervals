@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy import stats as sp_stats
 from stats_engine import (
     calculate_reference_interval,
@@ -38,10 +39,11 @@ st.set_page_config(
     layout="wide",
 )
 
-# Blue accent for action buttons and interactive elements
+# Custom CSS for visual polish
 st.markdown(
     """
     <style>
+    /* Blue accent buttons */
     .stButton > button[kind="primary"] {
         background-color: #2563eb;
         border-color: #2563eb;
@@ -65,6 +67,53 @@ st.markdown(
     .stDownloadButton > button:hover {
         color: #1d4ed8;
         border-color: #1d4ed8;
+    }
+    /* Section dividers */
+    .section-divider {
+        border: none;
+        height: 3px;
+        background: linear-gradient(90deg, #2563eb 0%, #93c5fd 50%, transparent 100%);
+        margin: 1.5em 0 1em 0;
+        border-radius: 2px;
+    }
+    /* Metric cards */
+    .metric-card {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        border-left: 4px solid #2563eb;
+        border-radius: 0.5em;
+        padding: 0.8em 1em;
+        margin-bottom: 0.5em;
+    }
+    .metric-card .metric-label {
+        font-size: 0.8em;
+        color: #64748b;
+        margin-bottom: 0.2em;
+    }
+    .metric-card .metric-value {
+        font-size: 1.3em;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .metric-card .metric-sub {
+        font-size: 0.75em;
+        color: #64748b;
+        margin-top: 0.15em;
+    }
+    /* Partition badges */
+    .badge-partition {
+        display: inline-block;
+        padding: 0.2em 0.7em;
+        border-radius: 1em;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+    .badge-partition.recommend {
+        background-color: #dcfce7;
+        color: #166534;
+    }
+    .badge-partition.combine {
+        background-color: #f1f5f9;
+        color: #475569;
     }
     </style>
     """,
@@ -111,61 +160,60 @@ def _fmt(val, decimals=4):
 def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: float,
                    remove_outliers: bool = True, df_col: str = None):
     """Render detailed results for a single analyte inside a tab."""
-    col1, col2 = st.columns(2)
 
-    with col1:
-        st.markdown("**Descriptive Statistics**")
-        stats_data = {
-            "Statistic": ["n (total)", "Missing values", "n (used)",
-                          "Outliers removed",
-                          "Mean", "Median", "SD", "Min", "Max"],
-            "Value": [
-                str(r.n_total), str(r.n_missing), str(r.n_used),
-                str(r.n_outliers),
-                _fmt(r.mean), _fmt(r.median), _fmt(r.std),
-                _fmt(r.min_val), _fmt(r.max_val),
-            ],
-        }
-        st.dataframe(
-            pd.DataFrame(stats_data), hide_index=True, use_container_width=True,
-        )
+    # --- Reference interval summary card ---
+    st.markdown(
+        f'<div class="metric-card">'
+        f'<div class="metric-label">{r.analyte} &mdash; {r.method_ri}</div>'
+        f'<div class="metric-value">{_fmt(r.lower_limit, 2)} &ndash; '
+        f'{_fmt(r.upper_limit, 2)}</div>'
+        f'<div class="metric-sub">n = {r.n_used} | '
+        f'{limit_conf*100:.0f}% CI lower: {_fmt(r.lower_ci_low, 2)}&ndash;'
+        f'{_fmt(r.lower_ci_high, 2)} | upper: {_fmt(r.upper_ci_low, 2)}&ndash;'
+        f'{_fmt(r.upper_ci_high, 2)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-        st.markdown("**Normality Assessment**")
-        norm_data = {
-            "Test": ["Shapiro-Wilk p-value", "Anderson-Darling statistic",
-                     "Anderson-Darling critical (5%)", "Normal distribution?"],
-            "Value": [
-                _fmt(r.shapiro_p), _fmt(r.anderson_stat),
-                _fmt(r.anderson_critical),
-                "Yes" if r.is_normal else "No" if r.is_normal is not None else "N/A",
-            ],
-        }
-        st.dataframe(
-            pd.DataFrame(norm_data), hide_index=True, use_container_width=True,
-        )
+    if r.warnings:
+        for w in r.warnings:
+            st.warning(w)
 
-        if r.boxcox_lambda is not None:
-            st.markdown(f"**Box-Cox lambda:** {r.boxcox_lambda:.4f}")
-
-    with col2:
-        st.markdown("**Reference Interval**")
-        ri_data = {
-            "": ["RI Method", "Lower Limit", "Upper Limit",
-                 "CI Method",
-                 f"Lower Limit {limit_conf*100:.0f}% CI",
-                 f"Upper Limit {limit_conf*100:.0f}% CI"],
-            "Value": [
-                r.method_ri,
-                _fmt(r.lower_limit),
-                _fmt(r.upper_limit),
-                r.method_ci,
-                f"{_fmt(r.lower_ci_low)} \u2013 {_fmt(r.lower_ci_high)}",
-                f"{_fmt(r.upper_ci_low)} \u2013 {_fmt(r.upper_ci_high)}",
-            ],
-        }
-        st.dataframe(
-            pd.DataFrame(ri_data), hide_index=True, use_container_width=True,
-        )
+    # --- Expandable detail tables ---
+    with st.expander("Descriptive Statistics & Normality", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Descriptive Statistics**")
+            stats_data = {
+                "Statistic": ["n (total)", "Missing values", "n (used)",
+                              "Outliers removed",
+                              "Mean", "Median", "SD", "Min", "Max"],
+                "Value": [
+                    str(r.n_total), str(r.n_missing), str(r.n_used),
+                    str(r.n_outliers),
+                    _fmt(r.mean), _fmt(r.median), _fmt(r.std),
+                    _fmt(r.min_val), _fmt(r.max_val),
+                ],
+            }
+            st.dataframe(
+                pd.DataFrame(stats_data), hide_index=True, use_container_width=True,
+            )
+        with col2:
+            st.markdown("**Normality Assessment**")
+            norm_data = {
+                "Test": ["Shapiro-Wilk p-value", "Anderson-Darling statistic",
+                         "Anderson-Darling critical (5%)", "Normal distribution?"],
+                "Value": [
+                    _fmt(r.shapiro_p), _fmt(r.anderson_stat),
+                    _fmt(r.anderson_critical),
+                    "Yes" if r.is_normal else "No" if r.is_normal is not None else "N/A",
+                ],
+            }
+            st.dataframe(
+                pd.DataFrame(norm_data), hide_index=True, use_container_width=True,
+            )
+            if r.boxcox_lambda is not None:
+                st.markdown(f"**Box-Cox lambda:** {r.boxcox_lambda:.4f}")
 
         if r.outlier_values:
             st.markdown(
@@ -173,19 +221,12 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
                 f"{', '.join(_fmt(v) for v in r.outlier_values)}"
             )
 
-        if r.warnings:
-            for w in r.warnings:
-                st.warning(w)
-
-    # --- Plots ---
-    st.markdown("**Distribution**")
+    # --- Plots (Plotly interactive) ---
     col_name = df_col or r.analyte
     all_values = df[col_name].dropna().values
 
-    # Separate clean data from outliers based on the remove_outliers setting
     outliers_removed = remove_outliers and r.n_outliers > 0
     if outliers_removed and r.outlier_indices:
-        # Build a mask over the non-NaN values
         mask = np.ones(len(all_values), dtype=bool)
         for idx in r.outlier_indices:
             if idx < len(mask):
@@ -196,60 +237,116 @@ def _render_detail(r: ReferenceIntervalResult, df: pd.DataFrame, limit_conf: flo
         clean_values = all_values
         outlier_vals = np.array([])
 
-    # The values used for plots match what was used for RI calculation
     plot_values = clean_values if outliers_removed else all_values
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    fig = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=(
+            "Histogram" + (" (outliers removed)" if outliers_removed else ""),
+            "Box Plot" + (" (outliers removed)" if outliers_removed else ""),
+            "Q-Q Plot" + (" (outliers removed)" if outliers_removed else ""),
+        ),
+        horizontal_spacing=0.08,
+    )
 
-    # Histogram with RI overlay
-    ax = axes[0]
-    ax.hist(plot_values, bins="auto", color="#4a90d9", edgecolor="white",
-            alpha=0.8, label="Used data")
+    # Histogram
+    fig.add_trace(
+        go.Histogram(
+            x=plot_values, name="Used data",
+            marker_color="#4a90d9", opacity=0.8,
+            showlegend=True,
+        ),
+        row=1, col=1,
+    )
     if outliers_removed and len(outlier_vals) > 0:
-        ax.hist(outlier_vals, bins="auto", color="#f59e0b", edgecolor="white",
-                alpha=0.6, label=f"Outliers removed ({len(outlier_vals)})")
-    ax.axvline(r.lower_limit, color="#2563eb", linestyle="--", linewidth=1.5,
-               label=f"Lower RI ({_fmt(r.lower_limit, 2)})")
-    ax.axvline(r.upper_limit, color="#2563eb", linestyle="--", linewidth=1.5,
-               label=f"Upper RI ({_fmt(r.upper_limit, 2)})")
+        fig.add_trace(
+            go.Histogram(
+                x=outlier_vals,
+                name=f"Outliers removed ({len(outlier_vals)})",
+                marker_color="#f59e0b", opacity=0.6,
+                showlegend=True,
+            ),
+            row=1, col=1,
+        )
+    fig.add_vline(x=r.lower_limit, line_dash="dash", line_color="#2563eb",
+                  line_width=2, row=1, col=1,
+                  annotation_text=f"Lower RI: {_fmt(r.lower_limit, 2)}",
+                  annotation_position="top left",
+                  annotation_font_size=10, annotation_font_color="#2563eb")
+    fig.add_vline(x=r.upper_limit, line_dash="dash", line_color="#2563eb",
+                  line_width=2, row=1, col=1,
+                  annotation_text=f"Upper RI: {_fmt(r.upper_limit, 2)}",
+                  annotation_position="top right",
+                  annotation_font_size=10, annotation_font_color="#2563eb")
     if not np.isnan(r.lower_ci_low):
-        ax.axvspan(r.lower_ci_low, r.lower_ci_high, alpha=0.15, color="#2563eb")
-        ax.axvspan(r.upper_ci_low, r.upper_ci_high, alpha=0.15, color="#2563eb")
-    ax.set_xlabel(r.analyte)
-    ax.set_ylabel("Frequency")
-    ax.set_title("Histogram" + (" (outliers removed)" if outliers_removed else ""))
-    ax.legend(fontsize=7)
+        fig.add_vrect(x0=r.lower_ci_low, x1=r.lower_ci_high,
+                      fillcolor="#2563eb", opacity=0.12, line_width=0,
+                      row=1, col=1)
+        fig.add_vrect(x0=r.upper_ci_low, x1=r.upper_ci_high,
+                      fillcolor="#2563eb", opacity=0.12, line_width=0,
+                      row=1, col=1)
 
     # Box plot
-    ax = axes[1]
-    ax.boxplot(plot_values, vert=True, patch_artist=True,
-               boxprops=dict(facecolor="#4a90d9", alpha=0.6),
-               medianprops=dict(color="#2563eb", linewidth=2))
+    fig.add_trace(
+        go.Box(
+            y=plot_values, name=r.analyte,
+            marker_color="#4a90d9", fillcolor="rgba(74,144,217,0.3)",
+            line_color="#2563eb",
+            showlegend=False,
+        ),
+        row=1, col=2,
+    )
     if outliers_removed and len(outlier_vals) > 0:
-        ax.scatter(
-            [1] * len(outlier_vals), outlier_vals,
-            color="#f59e0b", zorder=5, s=40, marker="x", linewidths=2,
-            label=f"Outliers removed ({len(outlier_vals)})",
+        fig.add_trace(
+            go.Scatter(
+                x=["Outliers"] * len(outlier_vals), y=outlier_vals,
+                mode="markers",
+                marker=dict(color="#f59e0b", size=9, symbol="x"),
+                name=f"Outliers ({len(outlier_vals)})",
+                showlegend=False,
+            ),
+            row=1, col=2,
         )
-        ax.legend(fontsize=7)
-    ax.set_ylabel(r.analyte)
-    ax.set_title("Box Plot" + (" (outliers removed)" if outliers_removed else ""))
-    ax.set_xticklabels([r.analyte])
 
     # Q-Q plot
-    ax = axes[2]
     (osm, osr), (slope, intercept, _) = sp_stats.probplot(
         plot_values, dist="norm")
-    ax.scatter(osm, osr, s=15, color="#4a90d9", alpha=0.7)
     line_x = np.array([osm.min(), osm.max()])
-    ax.plot(line_x, slope * line_x + intercept, color="#2563eb", linewidth=1.5)
-    ax.set_xlabel("Theoretical Quantiles")
-    ax.set_ylabel("Sample Quantiles")
-    ax.set_title("Q-Q Plot" + (" (outliers removed)" if outliers_removed else ""))
+    fig.add_trace(
+        go.Scatter(
+            x=osm, y=osr, mode="markers",
+            marker=dict(color="#4a90d9", size=5, opacity=0.7),
+            name="Data", showlegend=False,
+        ),
+        row=1, col=3,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=line_x, y=slope * line_x + intercept,
+            mode="lines",
+            line=dict(color="#2563eb", width=2),
+            name="Reference line", showlegend=False,
+        ),
+        row=1, col=3,
+    )
 
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    fig.update_layout(
+        height=380,
+        margin=dict(l=40, r=20, t=40, b=40),
+        template="plotly_white",
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.25,
+            xanchor="center", x=0.2, font_size=11,
+        ),
+        font=dict(family="Inter, sans-serif", size=12),
+    )
+    fig.update_xaxes(title_text=r.analyte, row=1, col=1)
+    fig.update_yaxes(title_text="Frequency", row=1, col=1)
+    fig.update_yaxes(title_text=r.analyte, row=1, col=2)
+    fig.update_xaxes(title_text="Theoretical Quantiles", row=1, col=3)
+    fig.update_yaxes(title_text="Sample Quantiles", row=1, col=3)
+
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _results_to_excel(results, summary_df, limit_conf):
@@ -516,6 +613,7 @@ def _render_publication_table(
 
 def _render_references():
     """Render the references and citations section."""
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     st.header("F. References & Citations")
     st.markdown(
         """
@@ -605,6 +703,7 @@ limit_conf = st.sidebar.selectbox(
     help="Confidence level for the CI around each reference limit (typically 90%).",
 )
 
+st.sidebar.divider()
 st.sidebar.subheader("Outlier Detection")
 outlier_method = st.sidebar.selectbox(
     "Method",
@@ -627,6 +726,7 @@ remove_outliers = st.sidebar.checkbox(
     help="Exclude outliers from reference interval calculation.",
 )
 
+st.sidebar.divider()
 st.sidebar.subheader("RI Method")
 ri_method = st.sidebar.selectbox(
     "Calculation method",
@@ -648,6 +748,7 @@ ri_method = st.sidebar.selectbox(
     ),
 )
 
+st.sidebar.divider()
 st.sidebar.subheader("CI Method")
 ci_method = st.sidebar.selectbox(
     "Confidence interval method",
@@ -671,6 +772,7 @@ n_boot = st.sidebar.number_input(
     help="Number of bootstrap resamples for CI estimation.",
 )
 
+st.sidebar.divider()
 st.sidebar.subheader("Partitioning")
 partition_enabled = st.sidebar.checkbox(
     "Partition by a categorical variable", value=False,
@@ -711,7 +813,7 @@ except (KeyError, FileNotFoundError):
 # ---------------------------------------------------------------------------
 
 if _logo_path:
-    _logo_col1, _logo_col2, _logo_col3 = st.columns([1, 2, 1])
+    _logo_col1, _logo_col2, _logo_col3 = st.columns([2, 1, 2])
     with _logo_col2:
         st.image(str(_logo_path), use_container_width=True)
 st.markdown(
@@ -732,6 +834,7 @@ st.markdown(
 # File upload
 # ---------------------------------------------------------------------------
 
+st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 st.header("A. Upload Data")
 st.markdown(
     "Upload an Excel file (`.xlsx` / `.xls`). The first column should contain "
@@ -831,6 +934,7 @@ if df is not None:
     # ------------------------------------------------------------------
     # Select analytes
     # ------------------------------------------------------------------
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     st.header("B. Select Analytes")
     selected = st.multiselect(
         "Choose analytes to analyse",
@@ -918,6 +1022,7 @@ if df is not None:
             progress.progress((i + 1) / len(selected))
 
         progress.empty()
+        st.toast("Reference intervals calculated successfully!", icon="\u2705")
 
         # Store results in session state so they persist across reruns
         st.session_state["ri_results"] = all_results
@@ -948,6 +1053,7 @@ if df is not None:
         stored_limit_conf = st.session_state["ri_limit_conf"]
         stored_remove_outliers = st.session_state["ri_remove_outliers"]
 
+        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.header("C. Results")
 
         # --------------------------------------------------------------
@@ -1013,11 +1119,11 @@ if df is not None:
             for pt in stored_partition:
                 if pt.details:
                     if pt.partition_recommended:
-                        icon_html = '<span style="color: #2563eb;">\u2714</span>'
+                        badge = '<span class="badge-partition recommend">Partition</span>'
                     else:
-                        icon_html = '<span style="color: #2563eb;">\u2716</span>'
+                        badge = '<span class="badge-partition combine">Combine</span>'
                     st.markdown(
-                        f'<small>{icon_html} <b>{pt.analyte}:</b> '
+                        f'{badge} <small><b>{pt.analyte}:</b> '
                         f'{pt.details}</small>',
                         unsafe_allow_html=True,
                     )
@@ -1072,6 +1178,7 @@ if df is not None:
         # --------------------------------------------------------------
         # AI Interpretation
         # --------------------------------------------------------------
+        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.header("D. AI Interpretation (powered by Claude)")
         if not _api_key:
             st.info(
@@ -1105,6 +1212,7 @@ if df is not None:
         # --------------------------------------------------------------
         # Publication-ready output & download
         # --------------------------------------------------------------
+        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.header("E. Publication-Ready Output")
 
         excel_buf = _results_to_excel(all_results, summary_df, stored_limit_conf)
