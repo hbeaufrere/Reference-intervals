@@ -137,7 +137,7 @@ def _build_partition_summary(
 def get_interpretation(
     results: list[ReferenceIntervalResult],
     api_key: str,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = "claude-opus-4-7",
     partition_results: list[PartitionTestResult] | None = None,
     group_ri_results: dict | None = None,
 ) -> str:
