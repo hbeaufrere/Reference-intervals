@@ -12,6 +12,7 @@ Usage
 
 import io
 import os
+import hmac
 import html as html_module
 import numpy as np
 import pandas as pd
@@ -828,6 +829,14 @@ try:
 except (KeyError, FileNotFoundError):
     _api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
+# Optional password protecting the AI interpretation feature (paid API
+# calls). When unset, the feature is available to anyone with the app.
+_ai_password = ""
+try:
+    _ai_password = st.secrets["AI_PASSWORD"]
+except (KeyError, FileNotFoundError):
+    _ai_password = os.environ.get("AI_PASSWORD", "")
+
 # ---------------------------------------------------------------------------
 # Main content
 # ---------------------------------------------------------------------------
@@ -1205,6 +1214,26 @@ if df is not None:
                 "Set ANTHROPIC_API_KEY in Streamlit secrets or as an "
                 "environment variable to enable AI-powered interpretation."
             )
+        elif _ai_password and not st.session_state.get("ai_unlocked", False):
+            # Feature is password-protected and not yet unlocked
+            _entered_pw = st.text_input(
+                "Password",
+                type="password",
+                key="ai_password_input",
+                help=(
+                    "AI interpretation makes paid API calls and is "
+                    "password-protected. Contact the app owner for access."
+                ),
+            )
+            if _entered_pw:
+                if hmac.compare_digest(
+                    _entered_pw.encode("utf-8"),
+                    _ai_password.encode("utf-8"),
+                ):
+                    st.session_state["ai_unlocked"] = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
         else:
             if st.button("Generate AI Interpretation", type="secondary"):
                 with st.spinner("Generating interpretation..."):

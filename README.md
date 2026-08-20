@@ -16,6 +16,10 @@ streamlit run app.py
 Optional: to enable the AI interpretation feature, set an Anthropic API
 key either as an environment variable (`ANTHROPIC_API_KEY`) or in
 `.streamlit/secrets.toml` (see `.streamlit/secrets.toml.example`).
+To restrict who can trigger the (paid) AI interpretation calls, also set
+`AI_PASSWORD` — users must then enter that password in the app before
+the feature unlocks. When `AI_PASSWORD` is unset, the feature is open to
+anyone with access to the app.
 
 ## Deploy to Posit Connect Cloud
 
@@ -32,6 +36,9 @@ directly from this GitHub repository — no code changes required.
    - Add an environment variable `ANTHROPIC_API_KEY` with your Anthropic
      API key to enable the AI interpretation feature (optional —
      everything else works without it). Never commit the key to the repo.
+   - Optionally add `AI_PASSWORD` to password-protect the AI
+     interpretation feature, so only people you share the password with
+     can trigger paid API calls.
 5. Click **Publish**. Connect Cloud installs `requirements.txt` and
    builds the app; the first build takes a few minutes.
 
