@@ -1,4 +1,7 @@
-streamlit>=1.30.0
+# <1.57 required: Posit Connect does not yet support Streamlit's new
+# Starlette server (see Posit Connect release notes). Lift the cap once
+# Posit announces Streamlit >= 1.57 support.
+streamlit>=1.30.0,<1.57.0
 pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
